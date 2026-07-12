@@ -11,6 +11,10 @@ export type CrateData = {
     keywords: Array<string>,
     authors: Array<string>,
     versions: Array<CrateVersionData>,
+    /** Collection this crate belongs to (e.g. "rutorch" groups all rutorch-* crates). Null/absent = ungrouped. */
+    collection?: string | null,
+    /** True if this crate is the entry-point of its collection, vs an internal dependency crate. Absent on older backends. */
+    collection_primary?: boolean,
 }
 
 export const defaultCrateData : CrateData = {
@@ -26,6 +30,8 @@ export const defaultCrateData : CrateData = {
     keywords: [],
     authors: [],
     versions: [],
+    collection: null,
+    collection_primary: false,
 }
 
 export type CrateVersionData = {

@@ -1,5 +1,6 @@
 <template>
-  <v-card class="crate-card mb-3" elevation="0" rounded="lg" data-testid="crate-card" @click="navigateToCrate">
+  <v-card class="crate-card mb-3" :class="{ 'crate-card--primary': isPrimary }" elevation="0" rounded="lg"
+    data-testid="crate-card" @click="navigateToCrate">
     <v-card-text class="pa-4">
       <div class="d-flex align-start">
         <!-- Origin Logo -->
@@ -19,6 +20,12 @@
               <v-chip size="small" variant="tonal" color="primary" class="version-chip"
                 data-testid="crate-card-version">
                 v{{ version }}
+              </v-chip>
+              <!-- Entry-point badge: marks the primary/entry crate of a collection -->
+              <v-chip v-if="isPrimary" size="small" variant="tonal" color="secondary" class="entry-chip"
+                data-testid="crate-card-entry-badge">
+                <v-icon icon="mdi-star-four-points-outline" size="x-small" class="mr-1" />
+                Entry
               </v-chip>
             </div>
 
@@ -87,7 +94,11 @@ const props = defineProps<{
   updated: string
   docLink?: string
   isCache: boolean
+  /** True when this crate is the entry-point of its collection; renders an "Entry" badge + highlighted border */
+  isPrimary?: boolean
 }>()
+
+const isPrimary = computed(() => props.isPrimary ?? false)
 
 const humanizedLastUpdated = computed(() => {
   return dayjs.utc(props.updated).fromNow();
@@ -130,6 +141,18 @@ function goToPublishDocs() {
 .crate-card:hover {
   background: rgba(var(--v-theme-primary), 0.04);
   border-color: rgb(var(--v-theme-primary));
+}
+
+/* Entry-point crate of a collection: highlighted border to stand out among its siblings */
+.crate-card--primary {
+  border-color: rgb(var(--v-theme-secondary));
+  box-shadow: 0 0 0 1px rgba(var(--v-theme-secondary), 0.4);
+}
+
+.entry-chip {
+  font-size: 0.75rem;
+  font-weight: 500;
+  height: 22px;
 }
 
 .min-width-0 {

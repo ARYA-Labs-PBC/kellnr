@@ -75,6 +75,25 @@
         </div>
       </div>
 
+      <!-- Collection Section -->
+      <div v-if="crate.collection" class="section-card" data-testid="about-collection">
+        <div class="section-header">
+          <v-icon icon="mdi-folder-star-multiple-outline" size="small" class="section-icon"></v-icon>
+          <span class="section-title">Collection</span>
+          <span v-if="crate.collection_primary" class="count-badge entry-point-badge"
+            data-testid="about-collection-entry-badge">
+            Entry point
+          </span>
+        </div>
+        <div class="section-content">
+          <!-- Filters the catalog's grouped view down to this collection -->
+          <router-link :to="{ name: 'Crates', query: { collection: crate.collection } }" class="item-chip"
+            data-testid="about-collection-chip">
+            {{ crate.collection }}
+          </router-link>
+        </div>
+      </div>
+
       <!-- Categories Section -->
       <div v-if="crate.categories && crate.categories.length > 0" class="section-card" data-testid="about-categories">
         <div class="section-header">
@@ -282,11 +301,18 @@ defineProps({
   background: rgb(var(--v-theme-surface));
   color: rgb(var(--v-theme-on-surface));
   border: 1px solid rgb(var(--v-theme-outline));
+  text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .item-chip:hover {
   border-color: rgb(var(--v-theme-primary));
+}
+
+.entry-point-badge {
+  background: rgba(var(--v-theme-secondary), 0.15);
+  color: rgb(var(--v-theme-secondary));
+  font-weight: 600;
 }
 
 .feature-chip {
