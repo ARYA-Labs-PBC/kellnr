@@ -1798,6 +1798,8 @@ async fn add_crate_and_get_crate_data(test_db: &kellnr_db::Database) {
             repository: pm1_v1.repository.clone(),
             categories: pm1_v1.categories.clone(),
             keywords: pm1_v1.keywords.clone(),
+            collection: None,
+            collection_primary: false,
             authors: pm1_v1.authors.clone().unwrap(),
             versions: vec![CrateVersionData {
                 version: pm1_v1.vers.clone(),
@@ -1846,6 +1848,8 @@ async fn add_crate_and_get_crate_data(test_db: &kellnr_db::Database) {
             repository: pm1_v2.repository.clone(),
             categories: pm1_v2.categories.clone(),
             keywords: pm1_v2.keywords.clone(),
+            collection: None,
+            collection_primary: false,
             authors: pm1_v2.authors.clone().unwrap(),
             versions: vec![
                 CrateVersionData {
@@ -1916,6 +1920,8 @@ async fn add_crate_and_get_crate_data(test_db: &kellnr_db::Database) {
             repository: pm2_v1.repository.clone(),
             categories: pm2_v1.categories.clone(),
             keywords: pm2_v1.keywords.clone(),
+            collection: None,
+            collection_primary: false,
             authors: pm2_v1.authors.clone().unwrap(),
             versions: vec![CrateVersionData {
                 version: pm2_v1.vers.clone(),
@@ -1963,6 +1969,8 @@ async fn add_crate_and_get_crate_data(test_db: &kellnr_db::Database) {
             repository: pm2_v2.repository.clone(),
             categories: Vec::default(),
             keywords: Vec::default(),
+            collection: None,
+            collection_primary: false,
             authors: Vec::default(),
             versions: vec![
                 CrateVersionData {

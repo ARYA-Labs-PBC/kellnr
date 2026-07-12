@@ -20,6 +20,9 @@ pub struct CrateData {
     pub repository: Option<String>,
     pub categories: Vec<String>,
     pub keywords: Vec<String>,
+    // catalog grouping declared via [package.metadata.kellnr]
+    pub collection: Option<String>,
+    pub collection_primary: bool,
     pub authors: Vec<String>,
     pub versions: Vec<CrateVersionData>,
 }

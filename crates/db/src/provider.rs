@@ -238,6 +238,12 @@ pub trait DbProvider: Send + Sync {
         created: &DateTime<Utc>,
         owner: &str,
     ) -> DbResult<i64>;
+    async fn set_crate_collection(
+        &self,
+        crate_name: &NormalizedName,
+        collection: Option<String>,
+        primary: bool,
+    ) -> DbResult<()>;
     async fn update_docs_link(
         &self,
         crate_name: &NormalizedName,
@@ -663,6 +669,10 @@ pub mod mock {
 
             async fn add_crate(&self, pub_metadata: &PublishMetadata, sha256: &str, created: &DateTime<Utc>, owner: &str) -> DbResult<i64> {
                 unimplemented!()
+            }
+
+            async fn set_crate_collection(&self, _crate_name: &NormalizedName, _collection: Option<String>, _primary: bool) -> DbResult<()> {
+                Ok(())
             }
 
             async fn update_docs_link(&self, crate_name: &NormalizedName, version: &Version, docs_link: &str) -> DbResult<()> {

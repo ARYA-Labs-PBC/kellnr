@@ -270,6 +270,11 @@ impl Database {
                 Expr::col(CrateMetaIden::Documentation),
                 Alias::new("documentation"),
             )
+            .expr_as(Expr::col(CrateIden::Collection), Alias::new("collection"))
+            .expr_as(
+                Expr::col(CrateIden::CollectionPrimary),
+                Alias::new("collection_primary"),
+            )
             .expr_as(Expr::cust("false"), Alias::new("is_cache"))
             .from(CrateMetaIden::Table)
             .inner_join(
@@ -308,6 +313,8 @@ impl Database {
                     Expr::col(CratesIoMetaIden::Documentation),
                     Alias::new("documentation"),
                 )
+                .expr_as(Expr::cust("NULL"), Alias::new("collection"))
+                .expr_as(Expr::cust("false"), Alias::new("collection_primary"))
                 .expr_as(Expr::cust("true"), Alias::new("is_cache"))
                 .from(CratesIoMetaIden::Table)
                 .inner_join(
@@ -1361,6 +1368,20 @@ impl DbProvider for Database {
         self.query_crates(None, Some((limit, offset)), cache).await
     }
 
+    async fn set_crate_collection(
+        &self,
+        crate_name: &NormalizedName,
+        collection: Option<String>,
+        primary: bool,
+    ) -> DbResult<()> {
+        let krate = self.get_krate_model(crate_name).await?;
+        let mut active: krate::ActiveModel = krate.into();
+        active.collection = Set(collection);
+        active.collection_primary = Set(primary);
+        active.update(&self.db_con).await?;
+        Ok(())
+    }
+
     async fn get_crate_data(&self, crate_name: &NormalizedName) -> DbResult<CrateData> {
         let krate = self.get_krate_model(crate_name).await?;
 
@@ -1470,6 +1491,8 @@ impl DbProvider for Database {
             repository: krate.repository,
             categories,
             keywords,
+            collection: krate.collection,
+            collection_primary: krate.collection_primary,
             authors,
             versions,
         };
@@ -1495,6 +1518,8 @@ impl DbProvider for Database {
             repository: Set(None),
             e_tag: Set(String::new()), // Set to empty string, as it can be computed, when the crate index is inserted
             restricted_download: Set(false),
+            collection: Set(None),
+            collection_primary: Set(false),
         };
         Ok(krate.insert(&self.db_con).await?.id)
     }
@@ -1548,6 +1573,8 @@ impl DbProvider for Database {
                 repository: Set(pub_metadata.repository.clone()),
                 e_tag: Set(String::new()), // Set to empty string, as it can be computed, when the crate index is inserted
                 restricted_download: Set(false),
+                collection: Set(None),
+                collection_primary: Set(false),
             };
             let krate = krate.insert(&txn).await?;
             krate.id
