@@ -78,6 +78,19 @@ The latest Kubernetes Helm chart can be found here: [Kellnr Helm Chart](https://
 - **Multi-Db support**: Kellnr supports multiple databases. You can use Sqlite or PostgreSQL as the storage backend for Kellnr.
 - **Local File System or S3**: Kellnr supports the local file system or S3 as the storage backend for the crates.
 - **User and group management**: Kellnr supports user and group management. This means that you can create users and groups and assign them to crates. This is useful in a corporate environment, where you want to control the access to the crates. You can create read-only users or require authentication for crate-pulls.
+- **Crate collections**: Related crates (e.g. the members of a Cargo workspace) can be grouped into a named *collection* and the entry-point crate(s) distinguished from internal dependency crates. The web UI can then render the catalog grouped by collection instead of one flat list. See [Crate collections](#crate-collections) below.
+
+## Crate collections
+
+When you host a workspace of related crates (`foo-core`, `foo-nn`, `foo-api`, …), the flat catalog makes it hard to see which crates belong together and which is the entry point. Declare the grouping in each crate's `Cargo.toml`:
+
+```toml
+[package.metadata.kellnr]
+collection = "foo"   # groups related crates together in the catalog
+primary = true       # marks this crate as an entry point (omit / false for internal deps)
+```
+
+Kellnr reads this from the published crate on `cargo publish` (no extra tooling), stores it per crate, and the web UI's catalog gains a **Grouped** view: one collapsible section per collection, with the `primary` crates shown first and badged as entry points. Crates without a collection appear in an "Ungrouped" section. The fields are purely organizational — they do not affect resolution or access control (see *user and group management* for access control).
 
 ## Differences to crates.io
 
