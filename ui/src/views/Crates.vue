@@ -32,6 +32,10 @@
           <span class="mr-2 switch-label">View</span>
           <v-btn-toggle :model-value="viewMode" color="primary" density="comfortable" variant="outlined" divided
             mandatory data-testid="crates-view-toggle" @update:model-value="setViewMode">
+            <v-btn value="tree" size="small" data-testid="crates-view-tree">
+              <v-icon icon="mdi-file-tree" size="small" class="mr-1" />
+              Tree
+            </v-btn>
             <v-btn value="grouped" size="small" data-testid="crates-view-grouped">
               <v-icon icon="mdi-folder-multiple-outline" size="small" class="mr-1" />
               Grouped
@@ -78,12 +82,49 @@
       </v-row>
 
       <!--
+        Dependency-tree view. Server-driven: fetches the whole `/api/v1/ui/collections`
+        catalog (with intra-collection dependency edges) and renders each collection as a
+        tree — the "main" crates (those nothing else in the family depends on) are the roots,
+        their dependencies nested underneath. Independent of the paginated flat list.
+      -->
+      <div v-if="viewMode === 'tree'" class="pa-3 tree-view" data-testid="crates-tree-view">
+        <div v-if="collectionsLoading" class="text-center my-6" data-testid="crates-tree-loading">
+          <v-progress-circular indeterminate color="primary" :size="36" />
+          <div class="text-body-2 mt-2">Loading collections...</div>
+        </div>
+        <div v-else-if="collectionTrees.length === 0" class="text-center my-6 text-body-2 text-grey">
+          No crate collections yet. Declare one with
+          <code>[package.metadata.kellnr] collection = "…"</code> and republish.
+        </div>
+        <v-expansion-panels v-else v-model="expandedTreeKeys" multiple variant="accordion" class="collection-panels">
+          <v-expansion-panel v-for="tree in collectionTrees" :key="tree.name" :value="tree.name">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center collection-panel-header">
+                <v-icon icon="mdi-file-tree" size="small" class="mr-2 collection-icon" />
+                <span class="collection-name font-weight-medium">{{ tree.name }}</span>
+                <v-chip size="small" variant="tonal" color="primary" class="ml-3 collection-count-chip">
+                  {{ tree.crates.length }} {{ tree.crates.length === 1 ? 'crate' : 'crates' }}
+                </v-chip>
+                <v-chip size="small" variant="tonal" color="secondary" class="ml-2 collection-count-chip">
+                  {{ tree.roots.length }} {{ tree.roots.length === 1 ? 'root' : 'roots' }}
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <crate-tree-node v-for="root in tree.roots" :key="root.name" :node="root" :lookup="tree.lookup"
+                :depth="0" :ancestors="[]" />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </div>
+
+      <!--
         Grouped-by-collection view. NOTE: this groups whatever crates are currently loaded into
         `crates` (the flat infinite-scroll/search list), not the full backend catalog — the
         `/api/v1/ui/crates` endpoint is paginated and has no server-side "group by collection"
         mode. Scrolling further (or searching) simply feeds more crates into the same grouping.
       -->
-      <div v-else class="pa-3 grouped-view" data-testid="crates-grouped-view">
+      <div v-else-if="viewMode === 'grouped'" class="pa-3 grouped-view" data-testid="crates-grouped-view">
         <div v-if="collectionFilter && groupedSections.length === 0" class="text-center my-6 text-body-2 text-grey">
           No loaded crates match collection "{{ collectionFilter }}" yet — keep scrolling or search to load more.
         </div>
@@ -127,7 +168,9 @@
 <script setup lang="ts">
 import { onBeforeMount, onMounted, ref, computed, watch, nextTick } from "vue"
 import CrateCard from "../components/CrateCard.vue"
+import CrateTreeNode from "../components/CrateTreeNode.vue"
 import type { CrateOverview } from "../types/crate_overview"
+import type { CollectionView, CollectionCrate } from "../types/collection"
 import { crateService } from "../services"
 import { isSuccess } from "../services/api"
 import { useRouter } from "vue-router"
@@ -150,7 +193,14 @@ const store = useStore()
 
 // View mode: `null` means "not yet chosen by the user" -> follow the computed default below.
 // Once the user clicks the toggle, their choice sticks for the rest of the session.
-const manualViewMode = ref<"grouped" | "flat" | null>(null)
+type ViewMode = "tree" | "grouped" | "flat"
+const manualViewMode = ref<ViewMode | null>(null)
+// Full server-side collections catalog (with dependency edges) for the Tree view.
+const collectionsData = ref<CollectionView[]>([])
+const collectionsLoading = ref(false)
+const collectionsLoaded = ref(false)
+// Which collection tree-panels are expanded (auto-expand each the first time it appears).
+const expandedTreeKeys = ref<string[]>([])
 // Collection to restrict the grouped view to, set when arriving via a "Collection" link
 // from the crate detail page (see About.vue). Null = show every collection.
 const collectionFilter = ref<string | null>(null)
@@ -169,13 +219,60 @@ function isCollectionPrimary(crate: CrateOverview): boolean {
 
 // Default to the Grouped view once any loaded crate actually has a collection; otherwise Flat.
 const hasAnyCollection = computed(() => crates.value.some((c) => getCollection(c) !== null))
-const viewMode = computed<"grouped" | "flat">(
-  () => manualViewMode.value ?? (hasAnyCollection.value ? "grouped" : "flat")
+// Default to the dependency-Tree view once the catalog has any collection; otherwise Flat.
+// A collection filter arriving from a crate page keeps the Grouped (filtered) view instead.
+const viewMode = computed<ViewMode>(
+  () =>
+    manualViewMode.value ??
+    (collectionFilter.value ? "grouped" : hasAnyCollection.value ? "tree" : "flat")
 )
 
-function setViewMode(mode: "grouped" | "flat") {
+function setViewMode(mode: ViewMode) {
   manualViewMode.value = mode
 }
+
+// Fetch the full collections catalog once, lazily, the first time the Tree view is shown.
+async function loadCollections() {
+  if (collectionsLoaded.value || collectionsLoading.value) return
+  collectionsLoading.value = true
+  const result = await crateService.getCollections()
+  collectionsLoading.value = false
+  if (isSuccess(result)) {
+    collectionsData.value = result.data
+    collectionsLoaded.value = true
+  }
+}
+
+// A collection prepared for tree rendering: the crate rows, a name->crate lookup, and the
+// roots (crates that no other crate in the collection depends on — the "main" crates you'd
+// depend on to pull in the family). Falls back to primary crates, then all crates, if a
+// dependency cycle leaves no natural root.
+type CollectionTree = {
+  name: string
+  crates: CollectionCrate[]
+  lookup: Record<string, CollectionCrate>
+  roots: CollectionCrate[]
+}
+
+const collectionTrees = computed<CollectionTree[]>(() =>
+  collectionsData.value.map((view) => {
+    const lookup: Record<string, CollectionCrate> = {}
+    for (const c of view.crates) lookup[c.name] = c
+
+    // Any crate named as someone's dependency is not a root.
+    const depended = new Set<string>()
+    for (const c of view.crates) {
+      for (const d of c.deps) if (lookup[d]) depended.add(d)
+    }
+
+    let roots = view.crates.filter((c) => !depended.has(c.name))
+    if (roots.length === 0) roots = view.crates.filter((c) => c.primary)
+    if (roots.length === 0) roots = [...view.crates]
+    roots = [...roots].sort((a, b) => a.name.localeCompare(b.name))
+
+    return { name: view.collection, crates: view.crates, lookup, roots }
+  })
+)
 
 type CollectionSection = {
   key: string
@@ -238,6 +335,29 @@ watch(
     for (const section of sections) {
       if (!expandedKeys.value.includes(section.key)) {
         expandedKeys.value.push(section.key)
+      }
+    }
+  },
+  { immediate: true }
+)
+
+// Lazily fetch the collections catalog the moment the Tree view first becomes active.
+watch(
+  viewMode,
+  (mode) => {
+    if (mode === "tree") loadCollections()
+  },
+  { immediate: true }
+)
+
+// Auto-expand each collection tree-panel the first time it appears (never auto-collapse
+// one the user closed — we only add keys).
+watch(
+  collectionTrees,
+  (trees) => {
+    for (const tree of trees) {
+      if (!expandedTreeKeys.value.includes(tree.name)) {
+        expandedTreeKeys.value.push(tree.name)
       }
     }
   },

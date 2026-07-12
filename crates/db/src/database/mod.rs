@@ -2,12 +2,12 @@ mod operations;
 pub mod test_utils;
 
 use std::cmp::max;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use kellnr_common::crate_data::{CrateData, CrateRegistryDep, CrateVersionData};
-use kellnr_common::crate_overview::CrateOverview;
+use kellnr_common::crate_overview::{CollectionCrate, CollectionView, CrateOverview};
 use kellnr_common::cratesio_prefetch_msg::{CratesioPrefetchMsg, UpdateData};
 use kellnr_common::index_metadata::{IndexDep, IndexMetadata};
 use kellnr_common::normalized_name::NormalizedName;
@@ -1380,6 +1380,81 @@ impl DbProvider for Database {
         active.collection_primary = Set(primary);
         active.update(&self.db_con).await?;
         Ok(())
+    }
+
+    async fn get_collections(&self) -> DbResult<Vec<CollectionView>> {
+        // All crates that declare a collection.
+        let crates = Krate::find()
+            .filter(krate::Column::Collection.is_not_null())
+            .all(&self.db_con)
+            .await?;
+        if crates.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // name -> its collection, so we can keep only intra-collection dep edges
+        // (a dependency counts for the tree only if it is a first-party crate in
+        // the same collection).
+        let name_to_collection: HashMap<String, String> = crates
+            .iter()
+            .filter_map(|c| c.collection.clone().map(|col| (c.name.clone(), col)))
+            .collect();
+
+        // Group members per collection, resolving each crate's max-version deps.
+        let mut grouped: BTreeMap<String, Vec<CollectionCrate>> = BTreeMap::new();
+        for c in &crates {
+            let collection = match &c.collection {
+                Some(col) => col.clone(),
+                None => continue,
+            };
+
+            // Deps come from the crate_index row matching the crate's max version
+            // (fall back to any available index row if the exact match is missing).
+            let indices = c.find_related(crate_index::Entity).all(&self.db_con).await?;
+            let index = indices
+                .iter()
+                .find(|ci| ci.vers == c.max_version)
+                .or_else(|| indices.last());
+
+            let deps: Vec<String> = match index.and_then(|ci| ci.deps.clone()) {
+                Some(deps) => {
+                    let parsed =
+                        serde_json::from_value::<Vec<IndexDep>>(deps).unwrap_or_default();
+                    parsed
+                        .into_iter()
+                        .map(|dep| dep.name)
+                        // keep only same-collection first-party deps, deduped
+                        .filter(|name| {
+                            name_to_collection.get(name) == Some(&collection)
+                                && name != &c.name
+                        })
+                        .collect::<HashSet<_>>()
+                        .into_iter()
+                        .collect()
+                }
+                None => Vec::new(),
+            };
+
+            grouped
+                .entry(collection)
+                .or_default()
+                .push(CollectionCrate {
+                    name: c.name.clone(),
+                    version: c.max_version.clone(),
+                    primary: c.collection_primary,
+                    deps,
+                });
+        }
+
+        // Deterministic ordering: collections and members alphabetically.
+        let views = grouped
+            .into_iter()
+            .map(|(collection, mut crates)| {
+                crates.sort_by(|a, b| a.name.cmp(&b.name));
+                CollectionView { collection, crates }
+            })
+            .collect();
+        Ok(views)
     }
 
     async fn get_crate_data(&self, crate_name: &NormalizedName) -> DbResult<CrateData> {

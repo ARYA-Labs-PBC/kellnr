@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use kellnr_appstate::{AppState, DbState, SettingsProvState, SettingsState};
 use kellnr_common::crate_data::CrateData;
-use kellnr_common::crate_overview::CrateOverview;
+use kellnr_common::crate_overview::{CollectionView, CrateOverview};
 use kellnr_common::normalized_name::NormalizedName;
 use kellnr_common::original_name::OriginalName;
 use kellnr_common::version::Version;
@@ -253,6 +253,22 @@ pub async fn crates(Query(params): Query<CratesParams>, State(db): DbState) -> J
         page_size,
         page,
     })
+}
+
+/// Get every crate collection with its intra-collection dependency edges.
+/// The frontend derives the dependency tree per collection: crates that appear
+/// in no other member's `deps` are the roots (the "main" crates of the family).
+#[utoipa::path(
+    get,
+    path = "/collections",
+    tag = "ui",
+    responses(
+        (status = 200, description = "Collections with dependency edges", body = [CollectionView])
+    )
+)]
+pub async fn collections(State(db): DbState) -> Json<Vec<CollectionView>> {
+    let collections = db.get_collections().await.unwrap_or_default();
+    Json(collections)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, ToSchema, utoipa::IntoParams)]
