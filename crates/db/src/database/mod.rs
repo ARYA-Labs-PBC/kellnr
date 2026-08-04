@@ -1420,17 +1420,7 @@ impl DbProvider for Database {
                 Some(deps) => {
                     let parsed =
                         serde_json::from_value::<Vec<IndexDep>>(deps).unwrap_or_default();
-                    parsed
-                        .into_iter()
-                        .map(|dep| dep.name)
-                        // keep only same-collection first-party deps, deduped
-                        .filter(|name| {
-                            name_to_collection.get(name) == Some(&collection)
-                                && name != &c.name
-                        })
-                        .collect::<HashSet<_>>()
-                        .into_iter()
-                        .collect()
+                    intra_collection_deps(parsed, &name_to_collection, &collection, &c.name)
                 }
                 None => Vec::new(),
             };
@@ -2386,6 +2376,99 @@ impl DbProvider for Database {
 
 fn parse_db_version(value: &str) -> DbResult<Version> {
     Version::try_from(value).map_err(|_| DbError::InvalidVersion(value.to_owned()))
+}
+
+/// The intra-collection dependency edges for one crate, used to build the catalog's
+/// dependency tree.
+///
+/// Resolves each dep to its ORIGINAL package name before matching. For a renamed dep
+/// (`alias = { package = "real-crate" }`) `IndexDep::name` holds the LOCAL ALIAS and the
+/// canonical crate name lives in `IndexDep::package` (see the `IndexDep` docs). Matching on
+/// the alias silently drops the edge — the crate it points at is real and in the collection,
+/// but no member is named `alias` — so every member renders as a root and the family shows a
+/// flat list instead of a tree. Only same-collection first-party deps are kept, self-edges
+/// dropped, and the result deduped.
+fn intra_collection_deps(
+    parsed: Vec<IndexDep>,
+    name_to_collection: &HashMap<String, String>,
+    collection: &str,
+    own_name: &str,
+) -> Vec<String> {
+    parsed
+        .into_iter()
+        .map(|dep| dep.package.unwrap_or(dep.name))
+        .filter(|name| {
+            name_to_collection.get(name).map(String::as_str) == Some(collection)
+                && name != own_name
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[cfg(test)]
+mod collection_dep_tests {
+    use super::*;
+
+    fn dep(name: &str, package: Option<&str>) -> IndexDep {
+        IndexDep {
+            name: name.to_string(),
+            req: "^1".to_string(),
+            features: vec![],
+            optional: false,
+            default_features: true,
+            target: None,
+            kind: None,
+            registry: None,
+            package: package.map(str::to_string),
+        }
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    /// REGRESSION: a RENAMED dep must still produce an edge. This is the bug that made the
+    /// `qorch` collection render 3 roots instead of a tree — `qorch-pgsa-explain-py` depends on
+    /// `qorch-pgsa-explain` under the alias `pgsa_explain_core` (the alias is unavoidable: the
+    /// binding crate's own lib is also named `qorch_pgsa_explain`).
+    #[test]
+    fn renamed_dep_still_yields_an_edge() {
+        let names = map(&[
+            ("qorch-pgsa-explain", "qorch"),
+            ("qorch-pgsa-explain-py", "qorch"),
+        ]);
+        let deps = vec![
+            dep("pgsa_explain_core", Some("qorch-pgsa-explain")),
+            dep("pyo3", None),
+        ];
+        let got = intra_collection_deps(deps, &names, "qorch", "qorch-pgsa-explain-py");
+        assert_eq!(got, vec!["qorch-pgsa-explain".to_string()]);
+    }
+
+    /// A plain (un-renamed) dep keeps working — the arya-speaks/arya-core shape.
+    #[test]
+    fn plain_dep_yields_an_edge() {
+        let names = map(&[("a-domain", "fam"), ("a-app", "fam")]);
+        let got = intra_collection_deps(vec![dep("a-domain", None)], &names, "fam", "a-app");
+        assert_eq!(got, vec!["a-domain".to_string()]);
+    }
+
+    /// Third-party and other-collection deps are not edges; self-edges are dropped.
+    #[test]
+    fn foreign_and_self_deps_are_excluded() {
+        let names = map(&[("a-app", "fam"), ("other", "elsewhere")]);
+        let deps = vec![
+            dep("serde", None),
+            dep("other", None),
+            dep("self_alias", Some("a-app")),
+        ];
+        let got = intra_collection_deps(deps, &names, "fam", "a-app");
+        assert!(got.is_empty(), "got {got:?}");
+    }
 }
 
 #[cfg(test)]
