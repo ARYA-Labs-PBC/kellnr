@@ -1,14 +1,16 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use kellnr_appstate::{AppState, DbState, SettingsProvState, SettingsState};
+use kellnr_appstate::{AppState, DbState, PypiState, SettingsProvState, SettingsState};
 use kellnr_common::crate_data::CrateData;
 use kellnr_common::crate_overview::{CollectionView, CrateOverview};
 use kellnr_common::normalized_name::NormalizedName;
 use kellnr_common::original_name::OriginalName;
 use kellnr_common::version::Version;
+use kellnr_db::DbProvider;
 use kellnr_db::error::DbError;
 use kellnr_settings::{
     ConfigSource, Provenance, Settings, SettingsProv, SourceMap, cli_flag_map, compile_time_config,
@@ -239,14 +241,29 @@ pub struct Pagination {
         (status = 200, description = "Paginated crate list", body = Pagination)
     )
 )]
-pub async fn crates(Query(params): Query<CratesParams>, State(db): DbState) -> Json<Pagination> {
+pub async fn crates(
+    Query(params): Query<CratesParams>,
+    State(db): DbState,
+    State(pypi): PypiState,
+) -> Json<Pagination> {
     let page_size = params.page_size.unwrap_or(10);
     let page = params.page.unwrap_or(0);
     let cache = params.cache.unwrap_or(false);
-    let crates = db
-        .get_crate_overview_list(page_size, page_size * page, cache)
+    let offset = page_size * page;
+    let mut crates = db
+        .get_crate_overview_list(page_size, offset, cache)
         .await
         .unwrap_or_default();
+
+    // The packages of an external PyPI index follow the crates, so a page is
+    // filled from the index only once the crate list is exhausted.
+    if let Some(pypi) = pypi {
+        let missing = page_size as usize - crates.len().min(page_size as usize);
+        if missing > 0 {
+            let skip = offset.saturating_sub(total_crates(&db, cache).await) as usize;
+            crates.extend(crate::pypi::listing(&pypi, &db, skip, missing).await);
+        }
+    }
 
     Json(Pagination {
         crates,
@@ -271,6 +288,20 @@ pub async fn collections(State(db): DbState) -> Json<Vec<CollectionView>> {
     Json(collections)
 }
 
+/// Number of crates the paginated overview lists, which is where the entries
+/// of an external `PyPI` index start.
+async fn total_crates(db: &Arc<dyn DbProvider>, cache: bool) -> u64 {
+    let crates = db.get_total_unique_crates().await.unwrap_or_default();
+    if cache {
+        crates
+            + db.get_total_unique_cached_crates()
+                .await
+                .unwrap_or_default()
+    } else {
+        crates
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, ToSchema, utoipa::IntoParams)]
 pub struct SearchParams {
     name: OriginalName,
@@ -287,11 +318,18 @@ pub struct SearchParams {
         (status = 200, description = "Search results", body = Pagination)
     )
 )]
-pub async fn search(Query(params): Query<SearchParams>, State(db): DbState) -> Json<Pagination> {
-    let crates = db
+pub async fn search(
+    Query(params): Query<SearchParams>,
+    State(db): DbState,
+    State(pypi): PypiState,
+) -> Json<Pagination> {
+    let mut crates = db
         .search_in_crate_name(&params.name, params.cache.unwrap_or(false))
         .await
         .unwrap_or_default();
+    if let Some(pypi) = pypi {
+        crates.extend(crate::pypi::matching(&pypi, &db, &params.name).await);
+    }
     Json(Pagination {
         page_size: crates.len() as u64,
         page: 0, // Return everything as one page
@@ -1612,6 +1650,7 @@ mod tests {
             collection: None,
             collection_primary: false,
             is_cache: false,
+            ..CrateOverview::default()
         };
 
         let test_crates = std::iter::repeat_with(|| test_crate_overview.clone())
@@ -1662,6 +1701,7 @@ mod tests {
                 collection: None,
                 collection_primary: false,
                 is_cache: true,
+                ..CrateOverview::default()
             },
             CrateOverview {
                 name: "c2".to_string(),
@@ -1673,6 +1713,7 @@ mod tests {
                 collection: None,
                 collection_primary: false,
                 is_cache: true,
+                ..CrateOverview::default()
             },
             CrateOverview {
                 name: "c3".to_string(),
@@ -1684,6 +1725,7 @@ mod tests {
                 collection: None,
                 collection_primary: false,
                 is_cache: true,
+                ..CrateOverview::default()
             },
         ];
 

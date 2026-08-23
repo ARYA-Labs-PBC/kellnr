@@ -6,7 +6,9 @@
         <!-- Origin Logo -->
         <div class="logo-container mr-4">
           <v-avatar size="48" class="crate-logo">
-            <v-img v-if="props.isCache" :src="store.cargoSmallLogo" alt="Crates.io logo" />
+            <v-icon v-if="props.isPypi" icon="mdi-language-python" size="28" color="primary"
+              data-testid="crate-card-pypi-logo" />
+            <v-img v-else-if="props.isCache" :src="store.cargoSmallLogo" alt="Crates.io logo" />
             <v-img v-else :src="store.kellnrSmallLogo" alt="Kellnr logo" />
           </v-avatar>
         </div>
@@ -17,7 +19,7 @@
           <div class="d-flex flex-wrap align-center justify-space-between mb-2">
             <div class="d-flex align-center flex-wrap crate-header">
               <span class="crate-name font-weight-bold me-3" data-testid="crate-card-name">{{ crate }}</span>
-              <v-chip size="small" variant="tonal" color="primary" class="version-chip"
+              <v-chip v-if="version" size="small" variant="tonal" color="primary" class="version-chip"
                 data-testid="crate-card-version">
                 v{{ version }}
               </v-chip>
@@ -27,11 +29,15 @@
                 <v-icon icon="mdi-star-four-points-outline" size="x-small" class="mr-1" />
                 Entry
               </v-chip>
+              <v-chip v-if="props.isPypi" size="small" variant="tonal" color="secondary" class="version-chip"
+                data-testid="crate-card-registry">
+                PyPI
+              </v-chip>
             </div>
 
             <!-- Stats Row -->
             <div class="d-flex align-center stats-row">
-              <v-tooltip location="top" text="Downloads">
+              <v-tooltip v-if="!props.isPypi" location="top" text="Downloads">
                 <template v-slot:activator="{ props: tooltipProps }">
                   <div class="stat-item" v-bind="tooltipProps">
                     <v-icon icon="mdi-download" size="x-small" class="stat-icon" />
@@ -40,7 +46,7 @@
                 </template>
               </v-tooltip>
 
-              <v-tooltip location="top" text="Last updated">
+              <v-tooltip v-if="humanizedLastUpdated" location="top" text="Last updated">
                 <template v-slot:activator="{ props: tooltipProps }">
                   <div class="stat-item" v-bind="tooltipProps">
                     <v-icon icon="mdi-calendar-outline" size="x-small" class="stat-icon" />
@@ -50,7 +56,12 @@
               </v-tooltip>
 
               <div class="doc-link-wrapper">
-                <a v-if="docLink && docLink.length > 0" :href="docLink" class="doc-button" target="_blank"
+                <a v-if="props.isPypi" :href="pypiUrl" class="doc-button" target="_blank"
+                  data-testid="crate-card-pypi-link" @click.stop>
+                  <v-icon icon="mdi-open-in-new" size="small" />
+                  <span>Package index</span>
+                </a>
+                <a v-else-if="docLink && docLink.length > 0" :href="docLink" class="doc-button" target="_blank"
                   data-testid="crate-card-docs-link" @click.stop>
                   <v-icon icon="mdi-file-document-outline" size="small" />
                   <span>Documentation</span>
@@ -96,12 +107,19 @@ const props = defineProps<{
   isCache: boolean
   /** True when this crate is the entry-point of its collection; renders an "Entry" badge + highlighted border */
   isPrimary?: boolean
+  /** Package of the external PyPI index instead of a crate hosted by kellnr */
+  isPypi?: boolean
+  /** Link to the package page of the external PyPI index */
+  pypiUrl?: string
 }>()
 
 const isPrimary = computed(() => props.isPrimary ?? false)
 
+// A simple PyPI index does not have to report upload times, so the date can
+// be missing. Show nothing instead of "Invalid Date" in that case.
 const humanizedLastUpdated = computed(() => {
-  return dayjs.utc(props.updated).fromNow();
+  const updated = dayjs.utc(props.updated);
+  return updated.isValid() ? updated.fromNow() : "";
 })
 
 // Format number with commas for readability
@@ -109,9 +127,13 @@ function formatNumber(num: number): string {
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-// Navigate to crate details or crates.io
+// Navigate to crate details, crates.io, or the external PyPI index
 function navigateToCrate() {
-  if (props.isCache) {
+  if (props.isPypi) {
+    if (props.pypiUrl) {
+      window.open(props.pypiUrl, '_blank');
+    }
+  } else if (props.isCache) {
     window.open(`https://crates.io/crates/${props.crate}`, '_blank');
   } else {
     router.push({

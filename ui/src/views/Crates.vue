@@ -77,7 +77,8 @@
           <crate-card v-for="crate in crates" :key="`${crate.name}-${crate.version}`" :crate="crate.name"
             :version="crate.version" :updated="crate.date" :downloads="crate.total_downloads" :desc="crate.description"
             :doc-link="crate.documentation" :is-cache="crate.is_cache"
-            :is-primary="isCollectionPrimary(crate)"></crate-card>
+            :is-primary="isCollectionPrimary(crate)" :is-pypi="crate.is_pypi"
+            :pypi-url="crate.pypi_url"></crate-card>
         </v-col>
       </v-row>
 
@@ -144,7 +145,8 @@
               <crate-card v-for="crate in section.crates" :key="`${crate.name}-${crate.version}`" :crate="crate.name"
                 :version="crate.version" :updated="crate.date" :downloads="crate.total_downloads"
                 :desc="crate.description" :doc-link="crate.documentation" :is-cache="crate.is_cache"
-                :is-primary="isCollectionPrimary(crate)"></crate-card>
+                :is-primary="isCollectionPrimary(crate)" :is-pypi="crate.is_pypi"
+                :pypi-url="crate.pypi_url"></crate-card>
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>

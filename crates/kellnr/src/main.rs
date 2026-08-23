@@ -10,6 +10,7 @@ use kellnr_appstate::AppStateData;
 use kellnr_auth::oauth2::OAuth2Handler;
 use kellnr_common::cratesio_downloader::build_client;
 use kellnr_common::cratesio_prefetch_msg::CratesioPrefetchMsg;
+use kellnr_common::pypi_index::PypiIndexClient;
 use kellnr_common::token_cache::TokenCacheManager;
 use kellnr_db::download_counter::DownloadCounter;
 use kellnr_db::{ConString, Database, DbProvider, PgConString, SqliteConString};
@@ -232,6 +233,8 @@ async fn run_server(resolved: ResolvedSettings) {
         Duration::from_secs(settings.proxy.request_timeout_seconds),
     );
 
+    let pypi = build_pypi_client(&settings);
+
     let state = AppStateData {
         db,
         signing_key,
@@ -244,6 +247,7 @@ async fn run_server(resolved: ResolvedSettings) {
         toolchain_storage,
         download_counter,
         proxy_client,
+        pypi,
     };
 
     // Create router using the route module
@@ -311,6 +315,32 @@ fn init_cookie_signing_key(settings: &Settings) -> Key {
     } else {
         Key::generate()
     }
+}
+
+/// Client for the external PEP 503 index configured in the `pypi` section.
+///
+/// Kellnr does not host Python packages. If a deployment serves a private
+/// index next to kellnr, the web UI lists its packages alongside the crates.
+fn build_pypi_client(settings: &Settings) -> Option<Arc<PypiIndexClient>> {
+    if !settings.pypi.enabled {
+        return None;
+    }
+    info!(
+        "Listing packages of the PyPI index at {} in the web UI",
+        settings.pypi.index
+    );
+    Some(Arc::new(PypiIndexClient::new(
+        settings.pypi.index.clone(),
+        settings
+            .pypi
+            .credentials()
+            .map(|(user, password)| (user.to_string(), password.to_string())),
+        settings.pypi.public_base(),
+        settings.pypi.max_packages,
+        Duration::from_secs(settings.pypi.cache_seconds),
+        Duration::from_secs(settings.pypi.connect_timeout_seconds),
+        Duration::from_secs(settings.pypi.request_timeout_seconds),
+    )))
 }
 
 fn init_tracing(settings: &Settings) {

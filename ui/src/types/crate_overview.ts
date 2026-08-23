@@ -12,4 +12,8 @@ export type CrateOverview = {
     collection?: string | null
     /** True if this crate is the entry-point of its collection, vs an internal dependency crate. Absent on older backends. */
     collection_primary?: boolean
+    /** Set for packages that come from the external PyPI index, not from kellnr */
+    is_pypi?: boolean
+    /** Link to the package page of the external PyPI index */
+    pypi_url?: string
 }
