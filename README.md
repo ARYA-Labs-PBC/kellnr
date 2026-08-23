@@ -74,10 +74,38 @@ The latest Kubernetes Helm chart can be found here: [Kellnr Helm Chart](https://
 - **Web UI**: Kellnr comes with a web UI to manage the crates. This makes it easy to upload new crates, manage the versions and see the documentation of the crates.
 - **Docs-rs support**: Kellnr supports the [docs.rs](https://docs.rs) documentation service. This means that you can host your own documentation for your crates with Kellnr.
 - **Crates.io proxy**: Kellnr can act as a proxy for [crates.io](https://crates.io). This means that you can use Kellnr as a cache for crates.io to speed up the download of crates.
+- **External PyPI index in the UI**: If a private Python package index (PEP 503 "simple" index) is served next to Kellnr, e.g. behind the same reverse proxy at `/pypi`, its packages are listed in the web UI next to the crates. Packages that are published as a crate too are only shown once. See the `pypi` section of the configuration; Kellnr reads the index, it does not host Python packages.
 - **Build in Rust**: Kellnr is written in Rust. This means that you can easily extend Kellnr with your own features or fix bugs. No other dependencies are needed.
 - **Multi-Db support**: Kellnr supports multiple databases. You can use Sqlite or PostgreSQL as the storage backend for Kellnr.
 - **Local File System or S3**: Kellnr supports the local file system or S3 as the storage backend for the crates.
 - **User and group management**: Kellnr supports user and group management. This means that you can create users and groups and assign them to crates. This is useful in a corporate environment, where you want to control the access to the crates. You can create read-only users or require authentication for crate-pulls.
+
+## Listing an external PyPI index
+
+Kellnr hosts crates, not Python packages. If a private Python index is served
+next to Kellnr, its packages can be shown in the web UI alongside the crates,
+so a registry that serves both is browsable in one place:
+
+```toml
+[pypi]
+enabled = true
+# PEP 503 "simple" index Kellnr reads
+index = "https://registry.example.com/pypi/simple/"
+# Optional: public base for the links in the UI, if it differs from `index`
+link_base = "/pypi/simple"
+# Optional: credentials, if the index requires basic auth
+username = "kellnr"
+password = "..."
+```
+
+The same values are available as environment variables (`KELLNR_PYPI__ENABLED`,
+`KELLNR_PYPI__INDEX`, ...) and as CLI flags (`--pypi-enabled`, `--pypi-index`,
+...). Index answers are cached for `pypi.cache_seconds` (default 300).
+
+A package whose name matches a crate hosted by Kellnr is listed only once, as
+the crate. Names are compared with the PEP 503 rule, so `arya_tools` and
+`arya-tools` are the same package. Uploads are unaffected: Python packages are
+published to the index itself, Kellnr only reads it.
 
 ## Differences to crates.io
 

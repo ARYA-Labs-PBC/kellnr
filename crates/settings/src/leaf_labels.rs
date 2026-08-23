@@ -22,19 +22,21 @@ pub fn leaf_label(dotted_path: &str) -> Option<&'static str> {
         "registry.token_db_retry_delay_ms" => "Token DB Retry Delay (ms)",
         "registry.download_timeout_seconds" => "Download Timeout (seconds)",
         "registry.download_counter_flush_seconds" => "Download Counter Flush (seconds)",
-        "proxy.connect_timeout_seconds" | "s3.connect_timeout_seconds" => {
-            "Connect Timeout (seconds)"
-        }
-        "proxy.request_timeout_seconds" | "s3.request_timeout_seconds" => {
-            "Request Timeout (seconds)"
-        }
+        "proxy.connect_timeout_seconds"
+        | "s3.connect_timeout_seconds"
+        | "pypi.connect_timeout_seconds" => "Connect Timeout (seconds)",
+        "proxy.request_timeout_seconds"
+        | "s3.request_timeout_seconds"
+        | "pypi.request_timeout_seconds" => "Request Timeout (seconds)",
         "toolchain.max_size" => "Max Size (MB)",
+        "pypi.cache_seconds" => "Cache TTL (seconds)",
 
         // Acronyms, humanizer would emit "Db", "Url", "Api", "Ip", "Http".
         "registry.max_db_connections" => "Max DB Connections",
         "registry.token_db_retry_count" => "Token DB Retry Count",
         "proxy.url" => "URL",
-        "proxy.index" => "Index URL",
+        "pypi.link_base" => "Link Base URL",
+        "proxy.index" | "pypi.index" => "Index URL",
         "proxy.api" => "API URL",
         "postgresql.db" => "Database",
         "postgresql.address" => "Address",

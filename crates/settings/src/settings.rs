@@ -16,6 +16,7 @@ use crate::oauth2::{OAuth2, OAuth2Args, OAuth2Partial, OAuth2Prov};
 use crate::origin::{Origin, OriginArgs, OriginPartial, OriginProv};
 use crate::postgresql::{Postgresql, PostgresqlArgs, PostgresqlPartial, PostgresqlProv};
 use crate::proxy::{Proxy, ProxyArgs, ProxyPartial, ProxyProv};
+use crate::pypi::{Pypi, PypiArgs, PypiPartial, PypiProv};
 use crate::registry::{Registry, RegistryArgs, RegistryPartial, RegistryProv};
 use crate::s3::{S3, S3Args, S3Partial, S3Prov};
 use crate::setup::{Setup, SetupArgs, SetupPartial, SetupProv};
@@ -50,6 +51,8 @@ pub struct Settings {
     pub oauth2: OAuth2,
     #[configurable(nested)]
     pub toolchain: Toolchain,
+    #[configurable(nested)]
+    pub pypi: Pypi,
 }
 
 /// Build a `SettingsProv` from the configured sources: optional TOML file,
