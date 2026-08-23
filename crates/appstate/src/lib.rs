@@ -4,6 +4,7 @@ use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 use flume::Sender;
 use kellnr_common::cratesio_prefetch_msg::CratesioPrefetchMsg;
+use kellnr_common::pypi_index::PypiIndexClient;
 use kellnr_common::token_cache::TokenCacheManager;
 use kellnr_db::DbProvider;
 use kellnr_db::download_counter::DownloadCounter;
@@ -29,6 +30,8 @@ pub type TokenCacheState = axum::extract::State<Arc<TokenCacheManager>>;
 pub type ToolchainStorageState = axum::extract::State<Option<Arc<ToolchainStorage>>>;
 pub type DownloadCounterState = axum::extract::State<Arc<DownloadCounter>>;
 pub type ProxyClientState = axum::extract::State<Client>;
+/// Client for the external `PyPI` index, `None` when the integration is off.
+pub type PypiState = axum::extract::State<Option<Arc<PypiIndexClient>>>;
 
 #[derive(Clone, FromRef)]
 pub struct AppStateData {
@@ -46,6 +49,9 @@ pub struct AppStateData {
     pub toolchain_storage: Option<Arc<ToolchainStorage>>,
     pub download_counter: Arc<DownloadCounter>,
     pub proxy_client: Client,
+    /// Read-only client for an external PEP 503 index served next to kellnr.
+    /// `None` unless `pypi.enabled` is set.
+    pub pypi: Option<Arc<PypiIndexClient>>,
 }
 
 /// Build a defaults-only `SettingsProv`, every leaf reports
@@ -86,5 +92,6 @@ pub fn test_state() -> AppStateData {
         toolchain_storage: None, // Toolchain storage disabled in tests by default
         download_counter,
         proxy_client: kellnr_common::cratesio_downloader::CLIENT.clone(),
+        pypi: None,
     }
 }

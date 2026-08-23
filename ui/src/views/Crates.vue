@@ -48,7 +48,8 @@
         <v-col cols="12">
           <crate-card v-for="crate in crates" :key="`${crate.name}-${crate.version}`" :crate="crate.name"
             :version="crate.version" :updated="crate.date" :downloads="crate.total_downloads" :desc="crate.description"
-            :doc-link="crate.documentation" :is-cache="crate.is_cache"></crate-card>
+            :doc-link="crate.documentation" :is-cache="crate.is_cache" :is-pypi="crate.is_pypi"
+            :pypi-url="crate.pypi_url"></crate-card>
         </v-col>
       </v-row>
 

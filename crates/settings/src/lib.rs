@@ -11,6 +11,7 @@ pub mod origin;
 pub mod postgresql;
 pub mod protocol;
 pub mod proxy;
+pub mod pypi;
 pub mod registry;
 pub mod s3;
 pub mod settings;
@@ -34,6 +35,7 @@ pub use protocol::Protocol;
 // referenced without a direct provcfg dep.
 pub use provcfg::{Category, Config, Provenance, erased_serde};
 pub use proxy::Proxy;
+pub use pypi::Pypi;
 pub use registry::Registry;
 pub use settings::{
     Settings, SettingsError, SettingsProv, build_prov_with_cli, sources_from_prov, test_settings,

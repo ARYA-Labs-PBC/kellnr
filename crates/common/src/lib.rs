@@ -7,6 +7,7 @@ pub mod normalized_name;
 pub mod original_name;
 pub mod prefetch;
 pub mod publish_metadata;
+pub mod pypi_index;
 pub mod search_result;
 pub mod token_cache;
 pub mod util;
