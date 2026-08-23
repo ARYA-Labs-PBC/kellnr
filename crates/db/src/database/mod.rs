@@ -1410,7 +1410,10 @@ impl DbProvider for Database {
 
             // Deps come from the crate_index row matching the crate's max version
             // (fall back to any available index row if the exact match is missing).
-            let indices = c.find_related(crate_index::Entity).all(&self.db_con).await?;
+            let indices = c
+                .find_related(crate_index::Entity)
+                .all(&self.db_con)
+                .await?;
             let index = indices
                 .iter()
                 .find(|ci| ci.vers == c.max_version)
@@ -1418,8 +1421,7 @@ impl DbProvider for Database {
 
             let deps: Vec<String> = match index.and_then(|ci| ci.deps.clone()) {
                 Some(deps) => {
-                    let parsed =
-                        serde_json::from_value::<Vec<IndexDep>>(deps).unwrap_or_default();
+                    let parsed = serde_json::from_value::<Vec<IndexDep>>(deps).unwrap_or_default();
                     intra_collection_deps(parsed, &name_to_collection, &collection, &c.name)
                 }
                 None => Vec::new(),
@@ -2398,8 +2400,7 @@ fn intra_collection_deps(
         .into_iter()
         .map(|dep| dep.package.unwrap_or(dep.name))
         .filter(|name| {
-            name_to_collection.get(name).map(String::as_str) == Some(collection)
-                && name != own_name
+            name_to_collection.get(name).map(String::as_str) == Some(collection) && name != own_name
         })
         .collect::<HashSet<_>>()
         .into_iter()
