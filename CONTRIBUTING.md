@@ -164,3 +164,20 @@ As `kellnr` is a multi-repo project, creating a new release involves several ste
     - Commit the changes and push them to the `main` branch. This will automatically deploy the updated documentation.
 
 By following these steps, you will ensure that the new release of `kellnr` is properly documented and available for users to deploy via the helm chart. Thank you for your contributions!
+
+## Pre-push gate (ARYA fork)
+
+This fork runs its checks **before** anything reaches GitHub, not as a workflow.
+Actions are effectively disabled on the fork, so a CI workflow here would look
+like a gate while never executing.
+
+Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-push` then runs rustfmt, a workspace-wide `cargo check`, clippy
+(`-D warnings`, scoped to the changed crates via `--no-deps` so pre-existing
+debt elsewhere cannot make the gate permanently red), and the docs/settings
+unit tests. `git push --no-verify` bypasses it; say so in the PR if you use it.

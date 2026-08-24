@@ -120,6 +120,36 @@ the crate. Names are compared with the PEP 503 rule, so `arya_tools` and
 `arya-tools` are the same package. Uploads are unaffected: Python packages are
 published to the index itself, Kellnr only reads it.
 
+## Rustdoc feature selection
+
+Kellnr builds rustdoc for published crates with the crate's **default** features,
+matching `docs.rs`. A crate that needs more for meaningful documentation opts in
+per-crate, and Kellnr honors the standard keys:
+
+```toml
+# in the documented crate's Cargo.toml
+[package.metadata.docs.rs]
+features = ["postgres", "json"]
+# or
+all-features = true
+# or
+no-default-features = true
+```
+
+An operator can flip the default for a whole instance:
+
+```toml
+[docs]
+all_features = true
+```
+
+Prefer the per-crate keys. Enabling every feature globally turns author-optional
+backends (CUDA, Metal, PyO3, Z3, ...) into hard build requirements, so a crate
+that is CPU-only by default stops documenting on a machine without that
+toolchain — and a macOS-only feature cannot be built on Linux at all. A crate's
+own `all-features` setting always wins over the server default, in both
+directions.
+
 ## Differences to crates.io
 
 - **Private**: Kellnr is designed to be used in a corporate environment or home-labs. It is possible to host Kellnr on your own hardware, such that you can control the access to the crates.
