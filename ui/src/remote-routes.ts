@@ -38,6 +38,7 @@ export const CRATESIO_DATA = "./api/v1/ui/cratesio_data";
 export const CRATES = "./api/v1/ui/crates";
 // Collections with intra-collection dependency edges (dependency-tree catalog view).
 export const COLLECTIONS = "./api/v1/ui/collections";
+export const PACKAGES = "./api/v1/ui/packages";
 export const CRATE_DELETE = (name: string) => `./api/v1/ui/crates/${encodeURIComponent(name)}`;
 export const CRATE_DELETE_VERSION = (name: string, version: string) =>
   `./api/v1/ui/crates/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;

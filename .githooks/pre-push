@@ -38,6 +38,14 @@ run "compile (workspace)"     cargo check --workspace --all-targets
 run "clippy (changed crates)" cargo clippy --no-deps -p kellnr-docs -p kellnr-settings --all-targets -- -D warnings
 # Pins the --all-features doc-build regression (ARY-4723) among others.
 run "docs + settings tests"   cargo test -p kellnr-docs -p kellnr-settings --lib
+# The UI is embedded into the binary, so a frontend break ships silently with a
+# green Rust build. Only runs when the toolchain is present, so a Rust-only
+# contributor is not blocked by a missing node_modules.
+if [ -d ui/node_modules ]; then
+  run "frontend typecheck"    sh -c 'cd ui && npx --no-install vue-tsc --noEmit'
+else
+  printf '\n\033[33m[pre-push] skipping frontend typecheck (ui/node_modules absent)\033[0m\n'
+fi
 
 if [ "$fail" -ne 0 ]; then
   printf '\n\033[31m[pre-push] blocked — fix the above, or `git push --no-verify` if you must.\033[0m\n\n'

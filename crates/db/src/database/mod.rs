@@ -1427,6 +1427,15 @@ impl DbProvider for Database {
                 None => Vec::new(),
             };
 
+            // Doc link for the max version, falling back to any version that has one,
+            // so the tree view can render the same Documentation control as the cards.
+            let metas = c.find_related(crate_meta::Entity).all(&self.db_con).await?;
+            let documentation = metas
+                .iter()
+                .find(|m| m.version == c.max_version)
+                .and_then(|m| m.documentation.clone())
+                .or_else(|| metas.iter().find_map(|m| m.documentation.clone()));
+
             grouped
                 .entry(collection)
                 .or_default()
@@ -1434,6 +1443,7 @@ impl DbProvider for Database {
                     name: c.name.clone(),
                     version: c.max_version.clone(),
                     primary: c.collection_primary,
+                    documentation,
                     deps,
                 });
         }

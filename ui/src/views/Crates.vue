@@ -152,6 +152,38 @@
         </v-expansion-panels>
       </div>
 
+      <!--
+        Packages of the external PyPI index.
+
+        The paginated flat list appends them AFTER every crate, so on a registry with
+        many crates they sit hundreds of entries down an infinite scroll, and the
+        collection-driven tree/grouped views omit them entirely because a package has
+        no collection. This section fetches them directly so they are reachable in one
+        click from whichever view the catalog opened in.
+      -->
+      <div v-if="pypiPackages.length > 0" class="pa-3" data-testid="crates-pypi-section">
+        <v-expansion-panels v-model="pypiExpanded" multiple variant="accordion">
+          <v-expansion-panel value="pypi">
+            <v-expansion-panel-title data-testid="crates-pypi-title">
+              <div class="d-flex align-center">
+                <v-icon icon="mdi-language-python" size="small" class="mr-2" />
+                <span class="collection-name font-weight-medium">PyPI packages</span>
+                <v-chip size="small" variant="tonal" color="secondary" class="ml-3">
+                  {{ pypiPackages.length }}
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <crate-card v-for="pkg in pypiPackages" :key="`pypi-${pkg.name}-${pkg.version}`"
+                :crate="pkg.name" :version="pkg.version" :updated="pkg.date"
+                :downloads="pkg.total_downloads" :desc="pkg.description"
+                :doc-link="pkg.documentation" :is-cache="pkg.is_cache"
+                :is-pypi="pkg.is_pypi" :pypi-url="pkg.pypi_url"></crate-card>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </div>
+
       <!-- Loading Indicator -->
       <div v-if="isLoading" class="text-center my-4 pb-4" data-testid="crates-loading">
         <v-progress-circular indeterminate color="primary" :size="40"></v-progress-circular>
@@ -201,6 +233,10 @@ const manualViewMode = ref<ViewMode | null>(null)
 const collectionsData = ref<CollectionView[]>([])
 const collectionsLoading = ref(false)
 const collectionsLoaded = ref(false)
+// Packages of the external PyPI index, fetched directly rather than waiting for the
+// paginated crate list to run out — see the PyPI section in the template.
+const pypiPackages = ref<CrateOverview[]>([])
+const pypiExpanded = ref<string[]>([])
 // Which collection tree-panels are expanded (auto-expand each the first time it appears).
 const expandedTreeKeys = ref<string[]>([])
 // Collection to restrict the grouped view to, set when arriving via a "Collection" link
@@ -386,10 +422,18 @@ onBeforeMount(() => {
   }
 })
 
+async function loadPypiPackages() {
+  const result = await crateService.getPackages()
+  if (isSuccess(result)) {
+    pypiPackages.value = result.data
+  }
+}
+
 onMounted(() => {
   if (searchText.value === "") {
     loadMoreCrates()
   }
+  loadPypiPackages()
 
   // Add resize event listener to handle window size changes
   window.addEventListener('resize', updateContainerHeight)

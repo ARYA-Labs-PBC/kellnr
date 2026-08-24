@@ -27,6 +27,22 @@
       <v-chip v-else-if="cycle" size="x-small" variant="tonal" color="warning" class="ml-2">
         cyclic
       </v-chip>
+      <!--
+        Documentation link, matching CrateCard. The tree had no docs control at all,
+        so on a registry that defaults to this view (any registry with a collection)
+        rustdoc was unreachable from the catalog even for crates that had it built.
+      -->
+      <a
+        v-if="node.documentation"
+        :href="node.documentation"
+        class="tree-doc-link ml-2"
+        target="_blank"
+        data-testid="crate-tree-docs-link"
+        @click.stop
+      >
+        <v-icon icon="mdi-file-document-outline" size="x-small" />
+        <span>Docs</span>
+      </a>
     </div>
 
     <!-- Recurse into this crate's same-collection dependencies. -->
@@ -118,5 +134,22 @@ const hasChildren = computed(() => children.value.length > 0)
 
 .tree-main-chip {
   font-weight: 600;
+}
+</style>
+
+<style scoped>
+.tree-doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  text-decoration: none;
+  color: rgb(var(--v-theme-primary));
+  opacity: 0.85;
+}
+
+.tree-doc-link:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 </style>

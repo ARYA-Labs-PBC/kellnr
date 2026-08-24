@@ -15,9 +15,11 @@ import type {
 import type { CrateData } from '../types/crate_data'
 import type { Statistics } from '../types/statistics'
 import type { CollectionView } from '../types/collection'
+import type { CrateOverview } from '../types/crate_overview'
 import {
   CRATES,
   COLLECTIONS,
+  PACKAGES,
   SEARCH,
   CRATE_DATA,
   CRATESIO_DATA,
@@ -52,6 +54,16 @@ export async function getCrates(
  */
 export async function getCollections(): Promise<ApiResult<CollectionView[]>> {
   return apiGet<CollectionView[]>(COLLECTIONS)
+}
+
+/**
+ * Every package of the external PyPI index, independent of crate pagination.
+ * The paginated crate list appends packages after ALL crates, which buries them
+ * on a registry with many crates, and the collection-driven views omit them
+ * entirely. This is how the catalog surfaces them in any view.
+ */
+export async function getPackages(): Promise<ApiResult<CrateOverview[]>> {
+  return apiGet<CrateOverview[]>(PACKAGES)
 }
 
 /**
