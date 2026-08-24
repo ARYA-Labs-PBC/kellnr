@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use kellnr_appstate::{AppState, DbState, PypiState, SettingsProvState, SettingsState};
 use kellnr_common::crate_data::CrateData;
-use kellnr_common::crate_overview::CrateOverview;
+use kellnr_common::crate_overview::{CollectionView, CrateOverview};
 use kellnr_common::normalized_name::NormalizedName;
 use kellnr_common::original_name::OriginalName;
 use kellnr_common::version::Version;
@@ -270,6 +270,22 @@ pub async fn crates(
         page_size,
         page,
     })
+}
+
+/// Get every crate collection with its intra-collection dependency edges.
+/// The frontend derives the dependency tree per collection: crates that appear
+/// in no other member's `deps` are the roots (the "main" crates of the family).
+#[utoipa::path(
+    get,
+    path = "/collections",
+    tag = "ui",
+    responses(
+        (status = 200, description = "Collections with dependency edges", body = [CollectionView])
+    )
+)]
+pub async fn collections(State(db): DbState) -> Json<Vec<CollectionView>> {
+    let collections = db.get_collections().await.unwrap_or_default();
+    Json(collections)
 }
 
 /// Number of crates the paginated overview lists, which is where the entries
@@ -1564,6 +1580,8 @@ mod tests {
             description: Some("description".to_string()),
             categories: vec!["cat1".to_string(), "cat2".to_string()],
             keywords: vec!["key1".to_string(), "key2".to_string()],
+            collection: None,
+            collection_primary: false,
             authors: vec!["author1".to_string(), "author2".to_string()],
             repository: Some("repository".to_string()),
             versions: vec![CrateVersionData {
@@ -1629,6 +1647,8 @@ mod tests {
             total_downloads: 2,
             date: "12-10-2021 05:41:00".to_string(),
             documentation: None,
+            collection: None,
+            collection_primary: false,
             is_cache: false,
             ..CrateOverview::default()
         };
@@ -1678,6 +1698,8 @@ mod tests {
                 total_downloads: 1,
                 description: Some("Desc".to_string()),
                 documentation: Some("Docs".to_string()),
+                collection: None,
+                collection_primary: false,
                 is_cache: true,
                 ..CrateOverview::default()
             },
@@ -1688,6 +1710,8 @@ mod tests {
                 total_downloads: 2,
                 description: Some("Desc".to_string()),
                 documentation: Some("Docs".to_string()),
+                collection: None,
+                collection_primary: false,
                 is_cache: true,
                 ..CrateOverview::default()
             },
@@ -1698,6 +1722,8 @@ mod tests {
                 total_downloads: 3,
                 description: None,
                 documentation: None,
+                collection: None,
+                collection_primary: false,
                 is_cache: true,
                 ..CrateOverview::default()
             },

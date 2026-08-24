@@ -3,7 +3,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use crate_meta::CrateMeta;
 use kellnr_common::crate_data::CrateData;
-use kellnr_common::crate_overview::CrateOverview;
+use kellnr_common::crate_overview::{CollectionView, CrateOverview};
 use kellnr_common::cratesio_prefetch_msg::CratesioPrefetchMsg;
 use kellnr_common::index_metadata::IndexMetadata;
 use kellnr_common::normalized_name::NormalizedName;
@@ -238,6 +238,15 @@ pub trait DbProvider: Send + Sync {
         created: &DateTime<Utc>,
         owner: &str,
     ) -> DbResult<i64>;
+    async fn set_crate_collection(
+        &self,
+        crate_name: &NormalizedName,
+        collection: Option<String>,
+        primary: bool,
+    ) -> DbResult<()>;
+    /// Every collection with its member crates and intra-collection dependency
+    /// edges, for the dependency-tree catalog view.
+    async fn get_collections(&self) -> DbResult<Vec<CollectionView>>;
     async fn update_docs_link(
         &self,
         crate_name: &NormalizedName,
@@ -662,6 +671,14 @@ pub mod mock {
             }
 
             async fn add_crate(&self, pub_metadata: &PublishMetadata, sha256: &str, created: &DateTime<Utc>, owner: &str) -> DbResult<i64> {
+                unimplemented!()
+            }
+
+            async fn set_crate_collection(&self, _crate_name: &NormalizedName, _collection: Option<String>, _primary: bool) -> DbResult<()> {
+                Ok(())
+            }
+
+            async fn get_collections(&self) -> DbResult<Vec<CollectionView>> {
                 unimplemented!()
             }
 

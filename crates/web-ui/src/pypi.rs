@@ -116,6 +116,9 @@ fn overview(package: &PypiPackage) -> CrateOverview {
         total_downloads: 0,
         description: None,
         documentation: None,
+        // A PyPI package is never part of a kellnr crate collection.
+        collection: None,
+        collection_primary: false,
         is_cache: false,
         is_pypi: true,
         pypi_url: Some(package.url.clone()),

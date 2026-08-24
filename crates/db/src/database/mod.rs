@@ -2,12 +2,12 @@ mod operations;
 pub mod test_utils;
 
 use std::cmp::max;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use kellnr_common::crate_data::{CrateData, CrateRegistryDep, CrateVersionData};
-use kellnr_common::crate_overview::CrateOverview;
+use kellnr_common::crate_overview::{CollectionCrate, CollectionView, CrateOverview};
 use kellnr_common::cratesio_prefetch_msg::{CratesioPrefetchMsg, UpdateData};
 use kellnr_common::index_metadata::{IndexDep, IndexMetadata};
 use kellnr_common::normalized_name::NormalizedName;
@@ -270,6 +270,11 @@ impl Database {
                 Expr::col(CrateMetaIden::Documentation),
                 Alias::new("documentation"),
             )
+            .expr_as(Expr::col(CrateIden::Collection), Alias::new("collection"))
+            .expr_as(
+                Expr::col(CrateIden::CollectionPrimary),
+                Alias::new("collection_primary"),
+            )
             .expr_as(Expr::cust("false"), Alias::new("is_cache"))
             .from(CrateMetaIden::Table)
             .inner_join(
@@ -308,6 +313,8 @@ impl Database {
                     Expr::col(CratesIoMetaIden::Documentation),
                     Alias::new("documentation"),
                 )
+                .expr_as(Expr::cust("NULL"), Alias::new("collection"))
+                .expr_as(Expr::cust("false"), Alias::new("collection_primary"))
                 .expr_as(Expr::cust("true"), Alias::new("is_cache"))
                 .from(CratesIoMetaIden::Table)
                 .inner_join(
@@ -1361,6 +1368,87 @@ impl DbProvider for Database {
         self.query_crates(None, Some((limit, offset)), cache).await
     }
 
+    async fn set_crate_collection(
+        &self,
+        crate_name: &NormalizedName,
+        collection: Option<String>,
+        primary: bool,
+    ) -> DbResult<()> {
+        let krate = self.get_krate_model(crate_name).await?;
+        let mut active: krate::ActiveModel = krate.into();
+        active.collection = Set(collection);
+        active.collection_primary = Set(primary);
+        active.update(&self.db_con).await?;
+        Ok(())
+    }
+
+    async fn get_collections(&self) -> DbResult<Vec<CollectionView>> {
+        // All crates that declare a collection.
+        let crates = Krate::find()
+            .filter(krate::Column::Collection.is_not_null())
+            .all(&self.db_con)
+            .await?;
+        if crates.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // name -> its collection, so we can keep only intra-collection dep edges
+        // (a dependency counts for the tree only if it is a first-party crate in
+        // the same collection).
+        let name_to_collection: HashMap<String, String> = crates
+            .iter()
+            .filter_map(|c| c.collection.clone().map(|col| (c.name.clone(), col)))
+            .collect();
+
+        // Group members per collection, resolving each crate's max-version deps.
+        let mut grouped: BTreeMap<String, Vec<CollectionCrate>> = BTreeMap::new();
+        for c in &crates {
+            let collection = match &c.collection {
+                Some(col) => col.clone(),
+                None => continue,
+            };
+
+            // Deps come from the crate_index row matching the crate's max version
+            // (fall back to any available index row if the exact match is missing).
+            let indices = c
+                .find_related(crate_index::Entity)
+                .all(&self.db_con)
+                .await?;
+            let index = indices
+                .iter()
+                .find(|ci| ci.vers == c.max_version)
+                .or_else(|| indices.last());
+
+            let deps: Vec<String> = match index.and_then(|ci| ci.deps.clone()) {
+                Some(deps) => {
+                    let parsed = serde_json::from_value::<Vec<IndexDep>>(deps).unwrap_or_default();
+                    intra_collection_deps(parsed, &name_to_collection, &collection, &c.name)
+                }
+                None => Vec::new(),
+            };
+
+            grouped
+                .entry(collection)
+                .or_default()
+                .push(CollectionCrate {
+                    name: c.name.clone(),
+                    version: c.max_version.clone(),
+                    primary: c.collection_primary,
+                    deps,
+                });
+        }
+
+        // Deterministic ordering: collections and members alphabetically.
+        let views = grouped
+            .into_iter()
+            .map(|(collection, mut crates)| {
+                crates.sort_by(|a, b| a.name.cmp(&b.name));
+                CollectionView { collection, crates }
+            })
+            .collect();
+        Ok(views)
+    }
+
     async fn get_crate_data(&self, crate_name: &NormalizedName) -> DbResult<CrateData> {
         let krate = self.get_krate_model(crate_name).await?;
 
@@ -1470,6 +1558,8 @@ impl DbProvider for Database {
             repository: krate.repository,
             categories,
             keywords,
+            collection: krate.collection,
+            collection_primary: krate.collection_primary,
             authors,
             versions,
         };
@@ -1495,6 +1585,8 @@ impl DbProvider for Database {
             repository: Set(None),
             e_tag: Set(String::new()), // Set to empty string, as it can be computed, when the crate index is inserted
             restricted_download: Set(false),
+            collection: Set(None),
+            collection_primary: Set(false),
         };
         Ok(krate.insert(&self.db_con).await?.id)
     }
@@ -1548,6 +1640,8 @@ impl DbProvider for Database {
                 repository: Set(pub_metadata.repository.clone()),
                 e_tag: Set(String::new()), // Set to empty string, as it can be computed, when the crate index is inserted
                 restricted_download: Set(false),
+                collection: Set(None),
+                collection_primary: Set(false),
             };
             let krate = krate.insert(&txn).await?;
             krate.id
@@ -2284,6 +2378,98 @@ impl DbProvider for Database {
 
 fn parse_db_version(value: &str) -> DbResult<Version> {
     Version::try_from(value).map_err(|_| DbError::InvalidVersion(value.to_owned()))
+}
+
+/// The intra-collection dependency edges for one crate, used to build the catalog's
+/// dependency tree.
+///
+/// Resolves each dep to its ORIGINAL package name before matching. For a renamed dep
+/// (`alias = { package = "real-crate" }`) `IndexDep::name` holds the LOCAL ALIAS and the
+/// canonical crate name lives in `IndexDep::package` (see the `IndexDep` docs). Matching on
+/// the alias silently drops the edge — the crate it points at is real and in the collection,
+/// but no member is named `alias` — so every member renders as a root and the family shows a
+/// flat list instead of a tree. Only same-collection first-party deps are kept, self-edges
+/// dropped, and the result deduped.
+fn intra_collection_deps(
+    parsed: Vec<IndexDep>,
+    name_to_collection: &HashMap<String, String>,
+    collection: &str,
+    own_name: &str,
+) -> Vec<String> {
+    parsed
+        .into_iter()
+        .map(|dep| dep.package.unwrap_or(dep.name))
+        .filter(|name| {
+            name_to_collection.get(name).map(String::as_str) == Some(collection) && name != own_name
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[cfg(test)]
+mod collection_dep_tests {
+    use super::*;
+
+    fn dep(name: &str, package: Option<&str>) -> IndexDep {
+        IndexDep {
+            name: name.to_string(),
+            req: "^1".to_string(),
+            features: vec![],
+            optional: false,
+            default_features: true,
+            target: None,
+            kind: None,
+            registry: None,
+            package: package.map(str::to_string),
+        }
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    /// REGRESSION: a RENAMED dep must still produce an edge. This is the bug that made the
+    /// `qorch` collection render 3 roots instead of a tree — `qorch-pgsa-explain-py` depends on
+    /// `qorch-pgsa-explain` under the alias `pgsa_explain_core` (the alias is unavoidable: the
+    /// binding crate's own lib is also named `qorch_pgsa_explain`).
+    #[test]
+    fn renamed_dep_still_yields_an_edge() {
+        let names = map(&[
+            ("qorch-pgsa-explain", "qorch"),
+            ("qorch-pgsa-explain-py", "qorch"),
+        ]);
+        let deps = vec![
+            dep("pgsa_explain_core", Some("qorch-pgsa-explain")),
+            dep("pyo3", None),
+        ];
+        let got = intra_collection_deps(deps, &names, "qorch", "qorch-pgsa-explain-py");
+        assert_eq!(got, vec!["qorch-pgsa-explain".to_string()]);
+    }
+
+    /// A plain (un-renamed) dep keeps working — the arya-speaks/arya-core shape.
+    #[test]
+    fn plain_dep_yields_an_edge() {
+        let names = map(&[("a-domain", "fam"), ("a-app", "fam")]);
+        let got = intra_collection_deps(vec![dep("a-domain", None)], &names, "fam", "a-app");
+        assert_eq!(got, vec!["a-domain".to_string()]);
+    }
+
+    /// Third-party and other-collection deps are not edges; self-edges are dropped.
+    #[test]
+    fn foreign_and_self_deps_are_excluded() {
+        let names = map(&[("a-app", "fam"), ("other", "elsewhere")]);
+        let deps = vec![
+            dep("serde", None),
+            dep("other", None),
+            dep("self_alias", Some("a-app")),
+        ];
+        let got = intra_collection_deps(deps, &names, "fam", "a-app");
+        assert!(got.is_empty(), "got {got:?}");
+    }
 }
 
 #[cfg(test)]

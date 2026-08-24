@@ -14,8 +14,10 @@ import type {
 } from '../types/api'
 import type { CrateData } from '../types/crate_data'
 import type { Statistics } from '../types/statistics'
+import type { CollectionView } from '../types/collection'
 import {
   CRATES,
+  COLLECTIONS,
   SEARCH,
   CRATE_DATA,
   CRATESIO_DATA,
@@ -42,6 +44,14 @@ export async function getCrates(
   cache: boolean
 ): Promise<ApiResult<CratesResponse>> {
   return apiGet<CratesResponse>(CRATES, { page, page_size: pageSize, cache })
+}
+
+/**
+ * Get all crate collections with their intra-collection dependency edges,
+ * for the dependency-tree catalog view. Server-side + complete (not paginated).
+ */
+export async function getCollections(): Promise<ApiResult<CollectionView[]>> {
+  return apiGet<CollectionView[]>(COLLECTIONS)
 }
 
 /**

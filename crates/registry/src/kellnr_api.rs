@@ -767,6 +767,18 @@ pub async fn publish(
         return Err(e.into());
     }
 
+    // Best-effort: record the crate's catalog grouping declared in
+    // [package.metadata.kellnr] (collection = "...", primary = true) inside the
+    // uploaded crate's Cargo.toml. Never fails the publish.
+    let collection_meta = crate::collection_meta::parse_collection_meta(&pub_data.cratedata);
+    let _ = db
+        .set_crate_collection(
+            &normalized_name,
+            collection_meta.collection,
+            collection_meta.primary,
+        )
+        .await;
+
     kellnr_webhooks::notify_crate(
         if id.is_none() {
             WebhookEvent::CrateAdd

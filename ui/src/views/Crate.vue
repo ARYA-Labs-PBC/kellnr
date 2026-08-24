@@ -260,8 +260,10 @@ async function getCrateData(name: string, version?: string) {
       return cvd.version == version;
     }) ?? defaultCrateVersionData;
 
-    // Set the default tab to "readme" if a readme is available, else "meta"
-    defaultTab.value = selected_version.value.readme == null ? "meta" : "readme";
+    // Default to the Readme tab only when a readme actually has content. Crates
+    // published without one carry an empty string (not null), which still hides the
+    // Readme tab — landing there left the page blank; fall back to the About tab.
+    defaultTab.value = selected_version.value.readme ? "readme" : "meta";
     tab.value = defaultTab.value;
   } else {
     console.error('Failed to load crate data:', result.error)

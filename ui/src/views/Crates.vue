@@ -25,6 +25,34 @@
           </v-switch>
         </v-col>
       </v-row>
+
+      <!-- View mode toggle: Grouped (by collection) vs Flat grid -->
+      <v-row no-gutters align="center" class="mt-3">
+        <v-col cols="12" class="d-flex align-center flex-wrap">
+          <span class="mr-2 switch-label">View</span>
+          <v-btn-toggle :model-value="viewMode" color="primary" density="comfortable" variant="outlined" divided
+            mandatory data-testid="crates-view-toggle" @update:model-value="setViewMode">
+            <v-btn value="tree" size="small" data-testid="crates-view-tree">
+              <v-icon icon="mdi-file-tree" size="small" class="mr-1" />
+              Tree
+            </v-btn>
+            <v-btn value="grouped" size="small" data-testid="crates-view-grouped">
+              <v-icon icon="mdi-folder-multiple-outline" size="small" class="mr-1" />
+              Grouped
+            </v-btn>
+            <v-btn value="flat" size="small" data-testid="crates-view-flat">
+              <v-icon icon="mdi-view-grid-outline" size="small" class="mr-1" />
+              Flat
+            </v-btn>
+          </v-btn-toggle>
+
+          <!-- Active collection filter (arrived via a "Collection" link from the crate detail page) -->
+          <v-chip v-if="collectionFilter" size="small" variant="tonal" color="secondary" class="ml-3"
+            closable data-testid="crates-collection-filter-chip" @click:close="clearCollectionFilter">
+            Collection: {{ collectionFilter }}
+          </v-chip>
+        </v-col>
+      </v-row>
     </v-card>
 
     <!-- Scrollable Content Container -->
@@ -43,15 +71,86 @@
         </v-card-text>
       </v-card>
 
-      <!-- Crates Grid -->
-      <v-row class="pa-3">
+      <!-- Flat Crates Grid -->
+      <v-row v-if="viewMode === 'flat'" class="pa-3">
         <v-col cols="12">
           <crate-card v-for="crate in crates" :key="`${crate.name}-${crate.version}`" :crate="crate.name"
             :version="crate.version" :updated="crate.date" :downloads="crate.total_downloads" :desc="crate.description"
-            :doc-link="crate.documentation" :is-cache="crate.is_cache" :is-pypi="crate.is_pypi"
+            :doc-link="crate.documentation" :is-cache="crate.is_cache"
+            :is-primary="isCollectionPrimary(crate)" :is-pypi="crate.is_pypi"
             :pypi-url="crate.pypi_url"></crate-card>
         </v-col>
       </v-row>
+
+      <!--
+        Dependency-tree view. Server-driven: fetches the whole `/api/v1/ui/collections`
+        catalog (with intra-collection dependency edges) and renders each collection as a
+        tree — the "main" crates (those nothing else in the family depends on) are the roots,
+        their dependencies nested underneath. Independent of the paginated flat list.
+      -->
+      <div v-if="viewMode === 'tree'" class="pa-3 tree-view" data-testid="crates-tree-view">
+        <div v-if="collectionsLoading" class="text-center my-6" data-testid="crates-tree-loading">
+          <v-progress-circular indeterminate color="primary" :size="36" />
+          <div class="text-body-2 mt-2">Loading collections...</div>
+        </div>
+        <div v-else-if="collectionTrees.length === 0" class="text-center my-6 text-body-2 text-grey">
+          No crate collections yet. Declare one with
+          <code>[package.metadata.kellnr] collection = "…"</code> and republish.
+        </div>
+        <v-expansion-panels v-else v-model="expandedTreeKeys" multiple variant="accordion" class="collection-panels">
+          <v-expansion-panel v-for="tree in collectionTrees" :key="tree.name" :value="tree.name">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center collection-panel-header">
+                <v-icon icon="mdi-file-tree" size="small" class="mr-2 collection-icon" />
+                <span class="collection-name font-weight-medium">{{ tree.name }}</span>
+                <v-chip size="small" variant="tonal" color="primary" class="ml-3 collection-count-chip">
+                  {{ tree.crates.length }} {{ tree.crates.length === 1 ? 'crate' : 'crates' }}
+                </v-chip>
+                <v-chip size="small" variant="tonal" color="secondary" class="ml-2 collection-count-chip">
+                  {{ tree.roots.length }} {{ tree.roots.length === 1 ? 'root' : 'roots' }}
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <crate-tree-node v-for="root in tree.roots" :key="root.name" :node="root" :lookup="tree.lookup"
+                :depth="0" :ancestors="[]" />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </div>
+
+      <!--
+        Grouped-by-collection view. NOTE: this groups whatever crates are currently loaded into
+        `crates` (the flat infinite-scroll/search list), not the full backend catalog — the
+        `/api/v1/ui/crates` endpoint is paginated and has no server-side "group by collection"
+        mode. Scrolling further (or searching) simply feeds more crates into the same grouping.
+      -->
+      <div v-else-if="viewMode === 'grouped'" class="pa-3 grouped-view" data-testid="crates-grouped-view">
+        <div v-if="collectionFilter && groupedSections.length === 0" class="text-center my-6 text-body-2 text-grey">
+          No loaded crates match collection "{{ collectionFilter }}" yet — keep scrolling or search to load more.
+        </div>
+        <v-expansion-panels v-model="expandedKeys" multiple variant="accordion" class="collection-panels">
+          <v-expansion-panel v-for="section in groupedSections" :key="section.key" :value="section.key">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center collection-panel-header">
+                <v-icon :icon="section.isUngrouped ? 'mdi-package-variant-closed' : 'mdi-folder-multiple'"
+                  size="small" class="mr-2 collection-icon" />
+                <span class="collection-name font-weight-medium">{{ section.name }}</span>
+                <v-chip size="small" variant="tonal" color="primary" class="ml-3 collection-count-chip">
+                  {{ section.crates.length }} {{ section.crates.length === 1 ? 'crate' : 'crates' }}
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <crate-card v-for="crate in section.crates" :key="`${crate.name}-${crate.version}`" :crate="crate.name"
+                :version="crate.version" :updated="crate.date" :downloads="crate.total_downloads"
+                :desc="crate.description" :doc-link="crate.documentation" :is-cache="crate.is_cache"
+                :is-primary="isCollectionPrimary(crate)" :is-pypi="crate.is_pypi"
+                :pypi-url="crate.pypi_url"></crate-card>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </div>
 
       <!-- Loading Indicator -->
       <div v-if="isLoading" class="text-center my-4 pb-4" data-testid="crates-loading">
@@ -69,9 +168,11 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeMount, onMounted, ref, nextTick } from "vue"
+import { onBeforeMount, onMounted, ref, computed, watch, nextTick } from "vue"
 import CrateCard from "../components/CrateCard.vue"
+import CrateTreeNode from "../components/CrateTreeNode.vue"
 import type { CrateOverview } from "../types/crate_overview"
+import type { CollectionView, CollectionCrate } from "../types/collection"
 import { crateService } from "../services"
 import { isSuccess } from "../services/api"
 import { useRouter } from "vue-router"
@@ -79,6 +180,8 @@ import { useStore } from "../store/store"
 
 // Constants
 const ITEMS_PER_PAGE = 20
+// Sentinel key for the "Ungrouped" section (crates with collection === null/absent)
+const UNGROUPED_KEY = "__ungrouped__"
 
 // State
 const crates = ref<CrateOverview[]>([])
@@ -90,11 +193,196 @@ const scrollContainer = ref<HTMLElement | null>(null)
 const router = useRouter()
 const store = useStore()
 
+// View mode: `null` means "not yet chosen by the user" -> follow the computed default below.
+// Once the user clicks the toggle, their choice sticks for the rest of the session.
+type ViewMode = "tree" | "grouped" | "flat"
+const manualViewMode = ref<ViewMode | null>(null)
+// Full server-side collections catalog (with dependency edges) for the Tree view.
+const collectionsData = ref<CollectionView[]>([])
+const collectionsLoading = ref(false)
+const collectionsLoaded = ref(false)
+// Which collection tree-panels are expanded (auto-expand each the first time it appears).
+const expandedTreeKeys = ref<string[]>([])
+// Collection to restrict the grouped view to, set when arriving via a "Collection" link
+// from the crate detail page (see About.vue). Null = show every collection.
+const collectionFilter = ref<string | null>(null)
+// Tracks which collection panels are expanded; new sections auto-expand the first time they appear.
+const expandedKeys = ref<string[]>([])
+
+// Treat a missing/undefined `collection` the same as an explicit null (older backend responses
+// won't have the field at all yet).
+function getCollection(crate: CrateOverview): string | null {
+  return crate.collection ?? null
+}
+
+function isCollectionPrimary(crate: CrateOverview): boolean {
+  return crate.collection_primary ?? false
+}
+
+// Default to the Grouped view once any loaded crate actually has a collection; otherwise Flat.
+const hasAnyCollection = computed(() => crates.value.some((c) => getCollection(c) !== null))
+// Default to the dependency-Tree view once the catalog has any collection; otherwise Flat.
+// A collection filter arriving from a crate page keeps the Grouped (filtered) view instead.
+const viewMode = computed<ViewMode>(
+  () =>
+    manualViewMode.value ??
+    (collectionFilter.value ? "grouped" : hasAnyCollection.value ? "tree" : "flat")
+)
+
+function setViewMode(mode: ViewMode) {
+  manualViewMode.value = mode
+}
+
+// Fetch the full collections catalog once, lazily, the first time the Tree view is shown.
+async function loadCollections() {
+  if (collectionsLoaded.value || collectionsLoading.value) return
+  collectionsLoading.value = true
+  const result = await crateService.getCollections()
+  collectionsLoading.value = false
+  if (isSuccess(result)) {
+    collectionsData.value = result.data
+    collectionsLoaded.value = true
+  }
+}
+
+// A collection prepared for tree rendering: the crate rows, a name->crate lookup, and the
+// roots (crates that no other crate in the collection depends on — the "main" crates you'd
+// depend on to pull in the family). Falls back to primary crates, then all crates, if a
+// dependency cycle leaves no natural root.
+type CollectionTree = {
+  name: string
+  crates: CollectionCrate[]
+  lookup: Record<string, CollectionCrate>
+  roots: CollectionCrate[]
+}
+
+const collectionTrees = computed<CollectionTree[]>(() =>
+  collectionsData.value.map((view) => {
+    const lookup: Record<string, CollectionCrate> = {}
+    for (const c of view.crates) lookup[c.name] = c
+
+    // Any crate named as someone's dependency is not a root.
+    const depended = new Set<string>()
+    for (const c of view.crates) {
+      for (const d of c.deps) if (lookup[d]) depended.add(d)
+    }
+
+    let roots = view.crates.filter((c) => !depended.has(c.name))
+    if (roots.length === 0) roots = view.crates.filter((c) => c.primary)
+    if (roots.length === 0) roots = [...view.crates]
+    roots = [...roots].sort((a, b) => a.name.localeCompare(b.name))
+
+    return { name: view.collection, crates: view.crates, lookup, roots }
+  })
+)
+
+type CollectionSection = {
+  key: string
+  name: string
+  isUngrouped: boolean
+  crates: CrateOverview[]
+}
+
+// Group the currently-loaded crates by `collection`, sorted alphabetically by collection name,
+// with primary/entry crates surfaced first within each section and an "Ungrouped" section last.
+const groupedSections = computed<CollectionSection[]>(() => {
+  const byCollection = new Map<string, CrateOverview[]>()
+
+  for (const crate of crates.value) {
+    const key = getCollection(crate) ?? UNGROUPED_KEY
+    const bucket = byCollection.get(key)
+    if (bucket) {
+      bucket.push(crate)
+    } else {
+      byCollection.set(key, [crate])
+    }
+  }
+
+  const sortWithinSection = (a: CrateOverview, b: CrateOverview) => {
+    const aPrimary = isCollectionPrimary(a)
+    const bPrimary = isCollectionPrimary(b)
+    if (aPrimary !== bPrimary) return aPrimary ? -1 : 1
+    return a.name.localeCompare(b.name)
+  }
+
+  const sections: CollectionSection[] = [...byCollection.keys()]
+    .filter((key) => key !== UNGROUPED_KEY)
+    .filter((key) => !collectionFilter.value || key === collectionFilter.value)
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => ({
+      key,
+      name: key,
+      isUngrouped: false,
+      crates: [...byCollection.get(key)!].sort(sortWithinSection),
+    }))
+
+  const ungrouped = byCollection.get(UNGROUPED_KEY)
+  if (ungrouped && !collectionFilter.value) {
+    sections.push({
+      key: UNGROUPED_KEY,
+      name: "Ungrouped",
+      isUngrouped: true,
+      crates: [...ungrouped].sort((a, b) => a.name.localeCompare(b.name)),
+    })
+  }
+
+  return sections
+})
+
+// Auto-expand any section the first time it appears; never auto-collapse a section the
+// user has manually closed (we only ever add keys here, never remove them).
+watch(
+  groupedSections,
+  (sections) => {
+    for (const section of sections) {
+      if (!expandedKeys.value.includes(section.key)) {
+        expandedKeys.value.push(section.key)
+      }
+    }
+  },
+  { immediate: true }
+)
+
+// Lazily fetch the collections catalog the moment the Tree view first becomes active.
+watch(
+  viewMode,
+  (mode) => {
+    if (mode === "tree") loadCollections()
+  },
+  { immediate: true }
+)
+
+// Auto-expand each collection tree-panel the first time it appears (never auto-collapse
+// one the user closed — we only add keys).
+watch(
+  collectionTrees,
+  (trees) => {
+    for (const tree of trees) {
+      if (!expandedTreeKeys.value.includes(tree.name)) {
+        expandedTreeKeys.value.push(tree.name)
+      }
+    }
+  },
+  { immediate: true }
+)
+
+function clearCollectionFilter() {
+  collectionFilter.value = null
+  const query = { ...router.currentRoute.value.query }
+  delete query.collection
+  router.replace({ query })
+}
+
 // Initial setup
 onBeforeMount(() => {
   if (router.currentRoute.value.query.search) {
     searchText.value = router.currentRoute.value.query.search as string
     handleSearch(searchText.value)
+  }
+
+  if (router.currentRoute.value.query.collection) {
+    collectionFilter.value = router.currentRoute.value.query.collection as string
+    manualViewMode.value = "grouped"
   }
 })
 
@@ -263,6 +551,30 @@ async function handleSearch(query: string) {
 .info-icon {
   color: rgb(var(--v-theme-primary));
   opacity: 0.7;
+}
+
+/* Grouped (by collection) view */
+.collection-panels {
+  background: transparent;
+}
+
+.collection-panel-header {
+  flex-wrap: wrap;
+}
+
+.collection-icon {
+  color: rgb(var(--v-theme-primary));
+  opacity: 0.8;
+}
+
+.collection-name {
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.collection-count-chip {
+  font-size: 0.75rem;
+  font-weight: 500;
+  height: 22px;
 }
 
 .content-container {

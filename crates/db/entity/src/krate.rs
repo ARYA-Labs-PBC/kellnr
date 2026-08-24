@@ -24,6 +24,9 @@ pub struct Model {
     pub original_name: String,
     pub e_tag: String,
     pub restricted_download: bool,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub collection: Option<String>,
+    pub collection_primary: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
