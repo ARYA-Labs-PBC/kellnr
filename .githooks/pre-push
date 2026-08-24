@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-push gate for the ARYA kellnr fork.
+#
+# WHY A HOOK AND NOT A GITHUB ACTION: Actions are effectively disabled on this
+# fork (the repo's only historical workflow run is a failed CodeQL setup), and
+# org Actions minutes are a standing cost concern. A workflow added here would
+# look like a gate while never executing — worse than no gate. This runs on the
+# developer's machine before anything reaches GitHub.
+#
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#
+# Emergency bypass is `git push --no-verify`; if you use it, say so in the PR.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+fail=0
+run() {
+  local label="$1"; shift
+  printf '\n\033[1m[pre-push] %s\033[0m\n' "$label"
+  if "$@"; then
+    printf '\033[32m  ok\033[0m\n'
+  else
+    printf '\033[31m  FAILED: %s\033[0m\n' "$label"
+    fail=1
+  fi
+}
+
+run "rustfmt"                 cargo fmt --all --check
+# --workspace, not -p: this hook exists partly because doc-builder changes alter
+# signatures in kellnr/src/main.rs. A crate-scoped check would miss exactly that.
+run "compile (workspace)"     cargo check --workspace --all-targets
+# --no-deps is deliberate: without it clippy also lints path dependencies, and the
+# fork carries pre-existing lint debt in crates a given change never touches. A gate
+# that is red on a clean tree gets bypassed and then ignored, so this denies warnings
+# strictly for the crates being changed. Workspace-wide breakage is caught by the
+# compile leg above, not here.
+run "clippy (changed crates)" cargo clippy --no-deps -p kellnr-docs -p kellnr-settings --all-targets -- -D warnings
+# Pins the --all-features doc-build regression (ARY-4723) among others.
+run "docs + settings tests"   cargo test -p kellnr-docs -p kellnr-settings --lib
+
+if [ "$fail" -ne 0 ]; then
+  printf '\n\033[31m[pre-push] blocked — fix the above, or `git push --no-verify` if you must.\033[0m\n\n'
+  exit 1
+fi
+printf '\n\033[32m[pre-push] all gates passed\033[0m\n\n'

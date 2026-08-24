@@ -25,6 +25,7 @@ pub fn doc_extraction_queue(
     docs_path: PathBuf,
     path_prefix: String,
     cratesio_index: Option<String>,
+    all_features: bool,
 ) {
     tokio::spawn(async move {
         loop {
@@ -35,6 +36,7 @@ pub fn doc_extraction_queue(
                 &docs_path,
                 &path_prefix,
                 cratesio_index.as_deref(),
+                all_features,
             )
             .await
             {
@@ -50,11 +52,12 @@ async fn inner_loop(
     docs_path: &Path,
     path_prefix: &str,
     cratesio_index: Option<&str>,
+    all_features: bool,
 ) -> Result<(), DocsError> {
     let entries = db.get_doc_queue().await?;
 
     for entry in entries {
-        if let Err(e) = extract_docs(&entry, cs, docs_path, cratesio_index).await {
+        if let Err(e) = extract_docs(&entry, cs, docs_path, cratesio_index, all_features).await {
             error!("Failed to extract docs from crate: {e}");
         } else {
             if let Err(e) = clean_up(&entry.path).await {
@@ -77,6 +80,7 @@ async fn extract_docs(
     cs: &KellnrCrateStorage,
     docs_path: &Path,
     cratesio_index: Option<&str>,
+    all_features: bool,
 ) -> Result<(), DocsError> {
     // Unpack crate
 
@@ -96,7 +100,7 @@ async fn extract_docs(
         .path
         .join(format!("{}-{}", doc.normalized_name, doc.version));
     strip_rust_toolchain_files(generated_docs_path).await?;
-    generate_docs(generated_docs_path, cratesio_index)?;
+    generate_docs(generated_docs_path, cratesio_index, all_features)?;
 
     // Copy the docs directory
     let from = generated_docs_path.join("target").join("doc");
@@ -160,6 +164,50 @@ async fn copy_dir(from: &Path, to: &Path) -> Result<(), DocsError> {
     Ok(())
 }
 
+/// Which features a doc build should enable, mirroring `docs.rs` semantics.
+///
+/// kellnr used to hard-code `--all-features` for every crate. That turns every
+/// author-optional backend into a hard build requirement: a crate declaring
+/// `default = []` with optional `cuda` / `metal` features would have BOTH forced
+/// on, so it could not document on a box without a CUDA toolchain, and the
+/// macOS-only `metal` path could not build on Linux at all. The crate is not at
+/// fault in that case — the builder is.
+///
+/// Resolution order, highest first:
+///   1. `[package.metadata.docs.rs]` in the crate itself (the author's intent)
+///   2. the `docs.all_features` server setting (operator override)
+///   3. the crate's own default features
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DocFeatures {
+    pub features: Vec<String>,
+    pub all_features: bool,
+    pub uses_default_features: bool,
+}
+
+impl DocFeatures {
+    /// Resolve the feature selection from a crate's `[package.metadata.docs.rs]`
+    /// keys, falling back to the operator default.
+    ///
+    /// Args mirror the docs.rs keys so the caller only has to pluck them out of
+    /// the manifest; each is `None` when the crate did not set it.
+    pub(crate) fn resolve(
+        features: Option<Vec<String>>,
+        no_default_features: Option<bool>,
+        all_features: Option<bool>,
+        operator_all_features: bool,
+    ) -> Self {
+        // An explicit per-crate `all-features` always wins, in both directions:
+        // a crate can opt in on a server that defaults to off, and opt out on a
+        // server that defaults to on.
+        let all = all_features.unwrap_or(operator_all_features);
+        Self {
+            features: features.unwrap_or_default(),
+            all_features: all,
+            uses_default_features: !no_default_features.unwrap_or(false),
+        }
+    }
+}
+
 /// Build the cargo [`GlobalContext`] used to document a crate.
 ///
 /// When a custom crates.io proxy index is configured (`cratesio_index`), point
@@ -184,13 +232,56 @@ fn build_doc_context(cratesio_index: Option<&str>) -> Result<GlobalContext, Docs
 fn generate_docs(
     crate_path: impl AsRef<Path>,
     cratesio_index: Option<&str>,
+    all_features: bool,
 ) -> Result<(), DocsError> {
     let manifest_path = crate_path.as_ref().join("Cargo.toml").canonicalize()?;
     let ctx = build_doc_context(cratesio_index)?;
     let workspace =
         Workspace::new(&manifest_path, &ctx).map_err(|e| DocsError::CargoError(e.to_string()))?;
+
+    // `[package.metadata.docs.rs]` — read without naming cargo's `toml` type, which
+    // is a different major version from the one in this workspace.
+    let metadata = workspace
+        .current()
+        .map_err(|e| DocsError::CargoError(e.to_string()))?
+        .manifest()
+        .custom_metadata();
+    let docs_rs = metadata
+        .and_then(|m| m.get("docs"))
+        .and_then(|d| d.get("rs"));
+    // clippy wants `toml::value::Value::as_bool` instead of the closures below. That
+    // type cannot be named here: cargo pulls a different major version of `toml` than
+    // this workspace, so a direct dependency to spell it out would resolve to the wrong
+    // type. Inference through the closure is what keeps this version-agnostic.
+    #[allow(
+        clippy::redundant_closure_for_method_calls,
+        reason = "cargo's `toml` is a different major version than this workspace's, so the type cannot be named"
+    )]
+    let selection = DocFeatures::resolve(
+        docs_rs
+            .and_then(|v| v.get("features"))
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            }),
+        docs_rs
+            .and_then(|v| v.get("no-default-features"))
+            .and_then(|v| v.as_bool()),
+        docs_rs
+            .and_then(|v| v.get("all-features"))
+            .and_then(|v| v.as_bool()),
+        all_features,
+    );
+
     let compile_opts = CompileOptions {
-        cli_features: CliFeatures::new_all(true),
+        cli_features: CliFeatures::from_command_line(
+            &selection.features,
+            selection.all_features,
+            selection.uses_default_features,
+        )
+        .map_err(|e| DocsError::CargoError(e.to_string()))?,
         ..CompileOptions::new(
             &ctx,
             UserIntent::Doc {
@@ -211,6 +302,68 @@ fn generate_docs(
 
 #[cfg(test)]
 mod tests {
+    use super::DocFeatures;
+
+    /// THE regression. kellnr shipped `CliFeatures::new_all(true)` for every
+    /// crate, which force-enabled author-optional backends (CUDA, Metal, `PyO3`,
+    /// Z3, OCCT) and broke the doc build for 21 first-party crates. A crate that
+    /// says nothing about docs.rs must get its OWN defaults, not all features.
+    #[test]
+    fn plain_crate_does_not_get_all_features() {
+        let f = DocFeatures::resolve(None, None, None, false);
+        assert!(
+            !f.all_features,
+            "doc builds must not force --all-features on a crate that did not ask for it"
+        );
+        assert!(f.uses_default_features);
+        assert!(f.features.is_empty());
+    }
+
+    /// A crate whose docs need an optional feature opts in per-crate.
+    #[test]
+    fn crate_can_opt_into_specific_features() {
+        let f = DocFeatures::resolve(
+            Some(vec!["postgres".to_owned(), "json".to_owned()]),
+            None,
+            None,
+            false,
+        );
+        assert_eq!(f.features, vec!["postgres".to_owned(), "json".to_owned()]);
+        assert!(!f.all_features);
+        assert!(f.uses_default_features);
+    }
+
+    #[test]
+    fn crate_can_opt_into_all_features() {
+        let f = DocFeatures::resolve(None, None, Some(true), false);
+        assert!(f.all_features);
+    }
+
+    /// The per-crate key wins in BOTH directions: a crate must be able to opt
+    /// OUT on a server whose operator turned the global default on, otherwise
+    /// the original defect just comes back for that deployment.
+    #[test]
+    fn crate_opt_out_beats_operator_default() {
+        let f = DocFeatures::resolve(None, None, Some(false), true);
+        assert!(
+            !f.all_features,
+            "an explicit per-crate `all-features = false` must override the server default"
+        );
+    }
+
+    #[test]
+    fn operator_default_applies_when_crate_is_silent() {
+        let f = DocFeatures::resolve(None, None, None, true);
+        assert!(f.all_features);
+    }
+
+    #[test]
+    fn no_default_features_is_honored() {
+        let f = DocFeatures::resolve(Some(vec!["alloc".to_owned()]), Some(true), None, false);
+        assert!(!f.uses_default_features);
+        assert_eq!(f.features, vec!["alloc".to_owned()]);
+    }
+
     use std::collections::HashSet;
 
     use cargo::core::SourceId;

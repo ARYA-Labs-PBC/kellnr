@@ -387,6 +387,7 @@ async fn init_docs_hosting(
                 .proxy
                 .cratesio_index_override()
                 .map(ToString::to_string),
+            settings.docs.all_features,
         );
     }
 }
