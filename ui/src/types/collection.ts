@@ -6,6 +6,8 @@ export type CollectionCrate = {
     version: string
     /** Author-declared entrypoint flag (collection_primary). */
     primary: boolean
+    /** rustdoc link for the crate's max version, if docs have been built. */
+    documentation?: string
     /** Names of this crate's dependencies that belong to the SAME collection. */
     deps: string[]
 }

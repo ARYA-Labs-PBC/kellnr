@@ -9,6 +9,7 @@ pub fn create_routes(state: AppStateData) -> OpenApiRouter<AppStateData> {
     OpenApiRouter::new()
         .routes(routes!(ui::kellnr_version))
         .routes(routes!(ui::crates))
+        .routes(routes!(ui::packages))
         .routes(routes!(ui::collections))
         .routes(routes!(ui::delete_crate_all))
         .routes(routes!(ui::delete_crate_version))

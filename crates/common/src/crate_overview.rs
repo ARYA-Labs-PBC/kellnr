@@ -34,6 +34,11 @@ pub struct CollectionCrate {
     pub version: String,
     /// Author-declared entrypoint flag (`collection_primary`).
     pub primary: bool,
+    /// rustdoc link for the crate's max version, mirroring `CrateOverview::documentation`.
+    /// The tree view renders the same Documentation control as the flat cards; without
+    /// this it silently had none, so a registry defaulting to the tree showed no docs
+    /// link anywhere at all.
+    pub documentation: Option<String>,
     /// Names of this crate's dependencies that belong to the SAME collection.
     /// The frontend derives the tree from these edges: a crate that appears in no
     /// other member's `deps` is a root (the "main" crate you'd depend on).

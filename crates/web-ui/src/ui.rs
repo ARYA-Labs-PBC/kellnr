@@ -272,6 +272,30 @@ pub async fn crates(
     })
 }
 
+/// Every package of the external `PyPI` index, independent of crate pagination.
+///
+/// The paginated `crates` list appends index packages AFTER the crates, so on a
+/// registry with many crates the packages land hundreds of entries down an
+/// infinite-scroll list — present, but unreachable in practice. They are also
+/// absent from the collection-driven tree/grouped views entirely, since a package
+/// has no crate collection. This endpoint gives the UI a direct handle on them so
+/// they can be surfaced in any view.
+#[utoipa::path(
+    get,
+    path = "/packages",
+    tag = "ui",
+    responses(
+        (status = 200, description = "Packages of the external PyPI index", body = [CrateOverview])
+    )
+)]
+pub async fn packages(State(db): DbState, State(pypi): PypiState) -> Json<Vec<CrateOverview>> {
+    let Some(pypi) = pypi else {
+        return Json(Vec::new());
+    };
+    // `max_packages` already bounds what the client reads from the index.
+    Json(crate::pypi::listing(&pypi, &db, 0, usize::MAX).await)
+}
+
 /// Get every crate collection with its intra-collection dependency edges.
 /// The frontend derives the dependency tree per collection: crates that appear
 /// in no other member's `deps` are the roots (the "main" crates of the family).
