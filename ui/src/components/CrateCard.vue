@@ -57,7 +57,8 @@
 
               <div class="doc-link-wrapper">
                 <a v-if="props.isPypi" :href="pypiUrl" class="doc-button" target="_blank"
-                  data-testid="crate-card-pypi-link" @click.stop>
+                  data-testid="crate-card-pypi-link" @click.stop
+                  title="Opens the private PyPI index, which uses its own credentials — not your registry login">
                   <v-icon icon="mdi-open-in-new" size="small" />
                   <span>Package index</span>
                 </a>
@@ -130,9 +131,13 @@ function formatNumber(num: number): string {
 // Navigate to crate details, crates.io, or the external PyPI index
 function navigateToCrate() {
   if (props.isPypi) {
-    if (props.pypiUrl) {
-      window.open(props.pypiUrl, '_blank');
-    }
+    // Deliberately inert. The PyPI index sits behind nginx basic auth, a DIFFERENT
+    // credential realm from the kellnr session (which is Google SSO). Opening it from
+    // a whole-card click popped a native browser username/password dialog with no
+    // explanation and no relation to the Google login the user just completed — it
+    // reads as "the registry logged me out". The explicit "Package index" link is
+    // still there for anyone who wants it, and is labelled as a separate login.
+    return;
   } else if (props.isCache) {
     window.open(`https://crates.io/crates/${props.crate}`, '_blank');
   } else {

@@ -1,7 +1,25 @@
 <template>
   <div class="about-content">
     <!-- Basic Information Section -->
-    <div v-if="crate.repository || crate.homepage || selectedVersion.license || selectedVersion.yanked === true" class="basic-info-section">
+    <div
+      v-if="selectedVersion.documentation || crate.repository || crate.homepage || selectedVersion.license || selectedVersion.yanked === true"
+      class="basic-info-section">
+      <!--
+        Documentation. The rustdoc kellnr builds for this version was reachable only
+        from the catalog card and a small control in the sidebar — the crate page's
+        own metadata never mentioned it, so a crate WITH docs looked like a crate
+        without. Same-origin link, so it inherits the session; no new tab.
+      -->
+      <div v-if="selectedVersion.documentation" class="info-row">
+        <div class="info-icon-wrapper">
+          <v-icon icon="mdi-file-document-outline" size="small"></v-icon>
+        </div>
+        <span class="info-label">Documentation</span>
+        <a :href="selectedVersion.documentation" class="external-link" data-testid="about-documentation">
+          rustdoc for v{{ selectedVersion.version }}
+        </a>
+      </div>
+
       <!-- Repository -->
       <div v-if="crate.repository" class="info-row">
         <div class="info-icon-wrapper">
