@@ -43,6 +43,7 @@ run "docs + settings tests"   cargo test -p kellnr-docs -p kellnr-settings --lib
 # contributor is not blocked by a missing node_modules.
 if [ -d ui/node_modules ]; then
   run "frontend typecheck"    sh -c 'cd ui && npx --no-install vue-tsc --noEmit'
+  run "frontend unit tests"   sh -c 'cd ui && npx --no-install vitest run'
 else
   printf '\n\033[33m[pre-push] skipping frontend typecheck (ui/node_modules absent)\033[0m\n'
 fi

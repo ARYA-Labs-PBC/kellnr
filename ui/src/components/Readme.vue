@@ -10,6 +10,7 @@ import { mangle } from 'marked-mangle';
 import { gfmHeadingId } from "marked-gfm-heading-id";
 import { markedHighlight } from "marked-highlight";
 import DOMPurify from 'dompurify';
+import { escapeNonHtmlTags } from '../utils/escapeNonHtmlTags';
 import { computed, watchEffect } from "vue";
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
@@ -34,7 +35,9 @@ const props = defineProps<{
 }>();
 
 const markedReadme = computed(() => {
-  return DOMPurify.sanitize(marked.parse(props.readme || ''));
+  // escapeNonHtmlTags runs BEFORE marked: once markdown has emitted a real <s>
+  // element, sanitising cannot tell it from one the author meant.
+  return DOMPurify.sanitize(marked.parse(escapeNonHtmlTags(props.readme || '')));
 });
 
 // Switch highlight.js theme based on current Vuetify theme
